@@ -517,6 +517,17 @@ nav.tabs a .tl{line-height:1;}
 .fab-menu{display:flex;flex-direction:column;gap:10px;margin-top:18px;}
 .fab-menu .btn{margin:0;text-align:center;}
 
+/* Objectives: the trip's five goals, stated plainly (Today) so the short tags decode */
+.objs{border:1px solid var(--line);margin-bottom:26px;}
+.objs-k{font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--red);font-weight:700;padding:12px 15px 11px;border-bottom:1px solid var(--line);background:var(--wash);}
+.obj-row{display:grid;grid-template-columns:28px 1fr;gap:13px;align-items:center;padding:11px 15px;border-bottom:1px solid var(--line);}
+.obj-row:last-child{border-bottom:none;}
+.obj-n{width:26px;height:26px;border-radius:50%;background:var(--ink);color:#fff;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums;}
+.obj-l{font-size:15px;font-weight:600;line-height:1.25;}
+.obj-l .obj-s{display:block;font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--faint);font-weight:700;margin-top:3px;}
+/* numbered objective tag prefix used on sessions/people/filters */
+.obj-tag-n{display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:15px;padding:0 3px;border-radius:8px;background:var(--red);color:#fff;font-size:9.5px;font-weight:700;margin-right:5px;vertical-align:middle;font-variant-numeric:tabular-nums;}
+
 /* action views (Money/Knowledge/Agent) skip the big masthead, so give them top air */
 .headview{padding-top:22px;}
 

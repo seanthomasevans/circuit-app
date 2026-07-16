@@ -260,6 +260,17 @@ function tickCountdown() {
   cd.innerHTML = d + '<span>days</span> ' + h + '<span>hr</span> ' + m + '<span>min</span>';
 }
 
+/* ---------- Objectives (the trip's five goals, clearly named) ---------- */
+// Number map, so the short tags used across the app tie back to a stated legend.
+function objMapN() { const m = {}; (DATA.objectives || []).forEach((o, i) => m[o.id] = { ...o, n: i + 1 }); return m; }
+function objectivesCard() {
+  const objs = DATA.objectives || [];
+  if (!objs.length) return '';
+  return `<div class="objs"><div class="objs-k">Why you're here · your five objectives</div>
+    ${objs.map((o, i) => `<div class="obj-row"><span class="obj-n">${i + 1}</span><div class="obj-l">${esc(o.label)}<span class="obj-s">${esc(o.short)}</span></div></div>`).join('')}
+  </div>`;
+}
+
 /* ---------- Today (run of day) ---------- */
 let curDay = null;
 const KIND_LABEL = { session:'Session', travel:'Travel', meal:'Meal', coffee:'Coffee', network:'Network', flex:'Flex', evening:'Evening', admin:'Admin', dressup:'Dress up' };
@@ -378,6 +389,7 @@ function viewToday() {
 
   render(masthead() +
     handle +
+    objectivesCard() +
     `<div class="day-head"><div class="day-tag">${esc(d.tag || 'Run of day')}</div>
       <div class="day-name">${esc(d.label)}<span class="dn-date">${shortDate(d.date)}</span></div></div>
      <div class="chips" style="margin-top:12px">${sel}</div>
@@ -400,7 +412,7 @@ function viewToday() {
 let schFilter = { day: 'all', obj: 'all', star: false };
 function viewSchedule() {
   const S = DATA.sessions, objs = DATA.objectives || [];
-  const objMap = {}; objs.forEach(o => objMap[o.id] = o);
+  const objMap = objMapN();
   const state = DATA._state || {};
   const starred = {}; Object.keys(state).forEach(k => { if (k.startsWith('star:') && state[k]) starred[k.slice(5)] = true; });
 
@@ -420,7 +432,7 @@ function viewSchedule() {
   // Filters
   const dayOrder = ['Sunday July 19', 'Monday July 20', 'Tuesday July 21', 'Wednesday July 22', 'Thursday July 23'];
   const dayChips = ['all', ...dayOrder].map(x => `<button class="chip ${schFilter.day === x ? 'on' : ''}" data-f="day" data-v="${esc(x)}">${x === 'all' ? 'All days' : esc(x.split(' ')[0])}</button>`).join('');
-  const objChips = objs.map(o => `<button class="chip obj ${schFilter.obj === o.id ? 'on' : ''}" data-f="obj" data-v="${o.id}">${esc(o.short)}</button>`).join('');
+  const objChips = objs.map((o, i) => `<button class="chip obj ${schFilter.obj === o.id ? 'on' : ''}" data-f="obj" data-v="${o.id}"><span class="obj-tag-n">${i + 1}</span>${esc(o.short)}</button>`).join('');
   const starChip = `<button class="chip ${schFilter.star ? 'on' : ''}" data-f="star" data-v="1">★ Starred</button>`;
 
   const dayKey = s => (s.day || 'TBD').match(/^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\s+\w+\s+\d+/) ? s.day.match(/^(?:Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\s+\w+\s+\d+/)[0] : (s.day || 'TBD');
@@ -440,7 +452,7 @@ function viewSchedule() {
       const o = (s.objectives || [])[0] ? objMap[(s.objectives || [])[0]] : null;
       return `<div class="sess" data-sess="${esc(s.id)}"><div class="s-time">${esc(s.start || '')}</div>
         <div><div class="s-title">${starred[s.id] ? '<span class="star">★</span> ' : ''}${esc(s.title)}</div>
-          <div class="s-meta"><span class="s-room">${placeLink(s.room)}</span>${s.type ? ' · ' + esc(s.type) : ''}${o ? '<span class="s-obj">' + esc(o.short) + '</span>' : ''}</div>
+          <div class="s-meta"><span class="s-room">${placeLink(s.room)}</span>${s.type ? ' · ' + esc(s.type) : ''}${o ? '<span class="s-obj"><span class="obj-tag-n">' + o.n + '</span>' + esc(o.short) + '</span>' : ''}</div>
           ${s.relevance ? `<div class="s-rel">${esc(s.relevance)}</div>` : ''}</div></div>`;
     }).join('') + '</div>').join('') || '<div class="empty">Nothing matches these filters.</div>';
 
@@ -470,11 +482,11 @@ function dayShort(day) {
 let ppFilter = { obj: 'all' };
 function viewPeople() {
   const C = DATA.contacts, objs = DATA.objectives || [];
-  const objMap = {}; objs.forEach(o => objMap[o.id] = o);
-  const objChips = objs.map(o => `<button class="chip obj ${ppFilter.obj === o.id ? 'on' : ''}" data-f="obj" data-v="${o.id}">${esc(o.short)}</button>`).join('');
+  const objMap = objMapN();
+  const objChips = objs.map((o, i) => `<button class="chip obj ${ppFilter.obj === o.id ? 'on' : ''}" data-f="obj" data-v="${o.id}"><span class="obj-tag-n">${i + 1}</span>${esc(o.short)}</button>`).join('');
   let list = C.filter(c => ppFilter.obj === 'all' || (c.objectives || []).includes(ppFilter.obj));
   const cards = list.map(c => {
-    const chips = (c.objectives || []).map(oid => { const o = objMap[oid]; return o ? `<span class="c-chip">${esc(o.short)}</span>` : ''; }).join('');
+    const chips = (c.objectives || []).map(oid => { const o = objMap[oid]; return o ? `<span class="c-chip"><span class="obj-tag-n">${o.n}</span>${esc(o.short)}</span>` : ''; }).join('');
     const statCls = c.hook_confirmed ? 'c-stat hooked' : 'c-stat';
     const statTxt = c.hook_confirmed ? 'hook confirmed' : 'target';
     return `<div class="card" data-p="${esc(c.id)}">
@@ -671,9 +683,9 @@ function isStarred(id) { return !!(DATA._state && DATA._state['star:' + id]); }
 function sheetSession(id, keep) {
   const s = DATA.sessions.find(x => x.id === id); if (!s) return;
   sheetState = { kind: 'session', id };
-  const objs = DATA.objectives || [], objMap = {}; objs.forEach(o => objMap[o.id] = o);
+  const objMap = objMapN();
   const starred = isStarred(id);
-  const chips = (s.objectives || []).map(oid => { const o = objMap[oid]; return o ? `<span class="sh-chip">${esc(o.short)}</span>` : ''; }).join('');
+  const chips = (s.objectives || []).map(oid => { const o = objMap[oid]; return o ? `<span class="sh-chip"><span class="obj-tag-n">${o.n}</span>${esc(o.short)}</span>` : ''; }).join('');
   openSheet(`<div class="sh-kicker">${esc(s.type || 'Session')}</div>
     <h3>${esc(s.title)}</h3>
     <div class="meta">${esc(s.day || '')}${s.start ? ' · ' + esc(s.start) + (s.end ? ' to ' + esc(s.end) : '') : ''}${s.room ? ' · ' + placeLink(s.room) : ''}</div>
@@ -691,8 +703,8 @@ function sheetPerson(id, keep) {
   const c = (DATA.contacts || []).find(x => x.id === id);
   if (!c) return;
   sheetState = { kind: 'person', id };
-  const objs = DATA.objectives || [], objMap = {}; objs.forEach(o => objMap[o.id] = o);
-  const chips = (c.objectives || []).map(oid => { const o = objMap[oid]; return o ? `<span class="sh-chip">${esc(o.short)}</span>` : ''; }).join('');
+  const objMap = objMapN();
+  const chips = (c.objectives || []).map(oid => { const o = objMap[oid]; return o ? `<span class="sh-chip"><span class="obj-tag-n">${o.n}</span>${esc(o.short)}</span>` : ''; }).join('');
   openSheet(`<div class="sh-kicker">${c.hook_confirmed ? 'Hook confirmed' : (c.status ? esc(c.status) : 'Contact')}</div>
     <h3>${esc(c.name)}</h3>
     <div class="meta">${esc(c.role || '')}${c.company ? ' · ' + esc(c.company) : ''}</div>
