@@ -18,7 +18,7 @@ const store = { get: k => { try { return JSON.parse(localStorage.getItem('circui
 
 const SIG_MAP='https://maps.goeshow.com/acm/siggraph/2026/floor_map';
 const gmap=q=>'https://maps.google.com/?q='+encodeURIComponent(q);
-const EXTERNAL=/LAX|Blvd|Ave\b|\bDr\b|\bSt\b|Station|Silver Lake|Trader|Dan'?s|Hyperion|Fletcher|Sunset|Queen|Revolver|dispensary|SWED|Catalyst|LAXCC|Pine|Night|Intelligentsia|barber/i;
+const EXTERNAL=/LAX|Blvd|Ave\b|\bDr\b|\bSt\b|Station|Broadway|Grand\b|Figueroa|Spring|STILE|Green Qween|Whole Foods|Verve|Grand Central|Bottega|Perch|Ralphs|Queen|Revolver|dispensary|barber/i;
 function placeHref(w){ if(!w) return SIG_MAP; return EXTERNAL.test(w)?gmap(w):SIG_MAP; }
 function placeLink(w,cls){ if(!w) return ''; return `<a class="${(cls||'')+' maplink'}" href="${placeHref(w)}" target="_blank" rel="noopener">${esc(w)}</a>`; }
 
@@ -56,15 +56,13 @@ function computeBudget(items, currency) {
 function mergeData(db) {
   db = db || {};
   const d = { ...REF };
-  if (db.contacts) d.contacts = db.contacts;
-  if (db.tasks) d.tasks = db.tasks;
-  if (db.meetings) d.meetings = db.meetings;
-  if (db.budget_items) d.budget = computeBudget(db.budget_items, (REF.budget && REF.budget.currency) || 'CAD');
-  // item_state -> lookup maps the views can read (starred, packed)
+  // Reference data (contacts, tasks, meetings, budget, sessions, day-plan) already lives in REF, the
+  // static bundle, which is the single source of truth. Supabase only overlays user-generated live data:
+  //   item_state -> checks / stars / done   ·   captures -> knowledge   ·   chat -> the agent conversation.
   const state = {}; (db.item_state || []).forEach(r => { state[r.key] = r.value; });
   d._state = state;
-  d._budget_items = db.budget_items || [];
   d.captures = db.captures || [];
+  d.chat = (db.chat || []).slice().sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
   DATA = d;
 }
 
@@ -125,13 +123,9 @@ async function boot() {
   }
 }
 
-// In dev mode window.DATA already carries the mutable arrays; adapt them into the db-shaped object.
+// In dev (plaintext) mode there is no Supabase, so the live tables start empty; reference is in REF.
 function DATA_devTables(d) {
-  return {
-    contacts: d.contacts, tasks: d.tasks, meetings: d.meetings,
-    budget_items: (d._budget_items || (d._budget_raw && d._budget_raw.items) || []),
-    item_state: [], captures: d.captures || [],
-  };
+  return { item_state: [], captures: d.captures || [], chat: d.chat || [] };
 }
 
 /* ---------- enter: load DB, merge, subscribe, start ---------- */
@@ -181,13 +175,13 @@ function setCtx() {
 }
 
 /* ---------- router ---------- */
-const TABS = ['today', 'schedule', 'people', 'prep', 'money', 'capture', 'ask'];
-const VIEWS = { today: viewToday, schedule: viewSchedule, people: viewPeople, prep: viewPrep, money: viewMoney, capture: viewCapture, ask: viewAsk };
+const TABS = ['today', 'schedule', 'people', 'prep', 'money', 'knowledge', 'agent'];
+const VIEWS = { today: viewToday, schedule: viewSchedule, people: viewPeople, prep: viewPrep, money: viewMoney, knowledge: viewKnowledge, agent: viewAgent };
 function route() {
   const [seg, id] = (location.hash.replace('#/', '') + '/').split('/');
   const tab = TABS.includes(seg) ? seg : 'today';
   document.querySelectorAll('nav.tabs a').forEach(a => a.classList.toggle('on', a.dataset.route === tab));
-  const fab = document.getElementById('fab'); if (fab) fab.style.display = (tab === 'capture' || tab === 'ask') ? 'none' : '';
+  const fab = document.getElementById('fab'); if (fab) fab.style.display = (tab === 'knowledge' || tab === 'agent') ? 'none' : '';
   VIEWS[tab]();
   if (id && (tab === 'people' || tab === 'schedule')) { tab === 'people' ? sheetPerson(id) : sheetSession(id); } else closeSheet();
   window.scrollTo(0, 0);
@@ -201,14 +195,15 @@ function rerender() {
   // if a sheet is open, refresh its contents from the new data
   if (sheetState.kind === 'person') sheetPerson(sheetState.id, true);
   else if (sheetState.kind === 'task') sheetTask(sheetState.id, true);
-  else if (sheetState.kind === 'budget') sheetBudget(sheetState.id, true);
   window.scrollTo(0, y);
 }
 function render(h) { $('#view').innerHTML = h; }
 
 /* ---------- DB write helpers (optimistic: write, re-merge from cache, re-render) ---------- */
 async function saveRow(table, row) {
-  await DB.upsert(table, row);
+  DB.cachePut(table, row);                 // optimistic: local cache + render now
+  mergeData(dbFromCache()); rerender();
+  await DB.upsert(table, row);             // persist (realtime reconciles later)
   await syncAfterWrite();
 }
 async function deleteRow(table, id) {
@@ -217,7 +212,10 @@ async function deleteRow(table, id) {
 }
 async function saveState(key, value) {
   // item_state PK is (owner, key); db.js caches by .id, so mirror key into id for the local cache.
-  await DB.upsert('item_state', { id: key, key, value });
+  const row = { id: key, key, value };
+  DB.cachePut('item_state', row);          // optimistic check/star, renders instantly
+  mergeData(dbFromCache()); rerender();
+  await DB.upsert('item_state', row);
   await syncAfterWrite();
 }
 // After an optimistic write, rebuild DATA from the (now-updated) local cache and re-render immediately.
@@ -266,9 +264,16 @@ function tickCountdown() {
 let curDay = null;
 const KIND_LABEL = { session:'Session', travel:'Travel', meal:'Meal', coffee:'Coffee', network:'Network', flex:'Flex', evening:'Evening', admin:'Admin', dressup:'Dress up' };
 
+// Task completion is an item_state overlay ('task:<id>') on top of the static task's default status,
+// so a check persists and syncs without mutating the static source.
+function taskDone(t) {
+  const k = 'task:' + t.id;
+  if (DATA._state && k in DATA._state) return !!DATA._state[k];
+  return t.status === 'done';
+}
 // A checkable, tappable task row shared by Today and Prep.
 function taskRowHtml(t) {
-  const done = t.status === 'done';
+  const done = taskDone(t);
   return `<div class="h-row${done ? ' done' : ''}" data-task="${esc(t.id)}">
     <button class="h-check${done ? ' on' : ''}" data-tcheck="${esc(t.id)}" aria-label="toggle done"></button>
     <div class="h-tap" data-tedit="${esc(t.id)}">
@@ -280,7 +285,6 @@ function taskRowHtml(t) {
 function bindTaskRows() {
   document.querySelectorAll('[data-tcheck]').forEach(b => b.onclick = e => { e.stopPropagation(); toggleTask(b.dataset.tcheck); });
   document.querySelectorAll('[data-tedit]').forEach(b => b.onclick = () => sheetTask(b.dataset.tedit));
-  document.querySelectorAll('[data-add="task"]').forEach(b => b.onclick = () => sheetTask('new'));
 }
 
 function viewToday() {
@@ -298,11 +302,11 @@ function viewToday() {
   const sel = days.map((x, i) => `<button class="chip ${i === curDay ? 'on' : ''}" data-day="${i}">${esc(x.label.slice(0,3))}<span style="opacity:.6;margin-left:5px;font-weight:400">${shortDate(x.date)}</span></button>`).join('');
 
   // To-handle strip: open + doing tasks, high first; each is checkable and tappable.
-  const open = (DATA.tasks || []).filter(t => t.status !== 'done')
+  const open = (DATA.tasks || []).filter(t => !taskDone(t))
     .sort((a, b) => (a.priority === 'high' ? 0 : 1) - (b.priority === 'high' ? 0 : 1) || (a.due || '').localeCompare(b.due || ''));
   const handle = `<div class="handle">
-    <div class="h-head"><span class="h-k">To handle</span><span class="h-actions"><span class="h-c">${open.length} open</span><button class="add-btn" data-add="task" aria-label="Add task">+</button></span></div>
-    ${open.length ? open.map(t => taskRowHtml(t)).join('') : '<div class="h-empty">Nothing open. Tap + to add.</div>'}
+    <div class="h-head"><span class="h-k">To handle</span><span class="h-actions"><span class="h-c">${open.length} open</span></span></div>
+    ${open.length ? open.map(t => taskRowHtml(t)).join('') : '<div class="h-empty">Nothing open.</div>'}
   </div>`;
 
   // NOW/NEXT
@@ -484,23 +488,22 @@ function viewPeople() {
   }).join('') || '<div class="empty">No contacts here.</div>';
 
   render(masthead() +
-    `<div class="sec"><div class="sec-h2row"><h2>Networking targets</h2><button class="add-btn lg" data-add="contact" aria-label="Add contact">+</button></div>
+    `<div class="sec"><h2>Networking targets</h2>
       <div class="sec-label" style="margin:8px 0 0">People to corner</div>
-      <div class="sec-sub">${list.length} targets, openers loaded</div>
+      <div class="sec-sub">${list.length} people, talking points loaded. Tap one for the detail.</div>
       <div class="chips" style="margin-top:14px">${objChips}</div>
       <div class="people">${cards}</div></div>`);
 
   tickCountdown();
   document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { ppFilter.obj = ppFilter.obj === b.dataset.v ? 'all' : b.dataset.v; viewPeople(); });
   document.querySelectorAll('[data-p]').forEach(c => c.onclick = () => sheetPerson(c.dataset.p));
-  document.querySelectorAll('[data-add="contact"]').forEach(b => b.onclick = () => sheetPerson('new'));
 }
 
 /* ---------- Prep ---------- */
 function viewPrep() {
   const L = DATA.logistics || {}, P = DATA.packing || { sections: [] }, briefs = DATA.briefs || [];
   const f = L.flights || {}, out = f.out || {}, back = f.back || {};
-  const t = L.transport || {}, air = t.uber_airport || {}, lg = L.lodging || {}, ven = L.venue || {}, bg = L.badge || {}, cn = L.cannabis || {};
+  const t = L.transport || {}, air = t.uber_airport || {}, lg = L.lodging || {}, ven = L.venue || {}, bg = L.badge || {}, sn = L.sundries || {};
   const state = DATA._state || {};
   // packing checks now live in item_state (key 'pack:<id>') so they sync across devices.
   const checks = {}; Object.keys(state).forEach(k => { if (k.startsWith('pack:')) checks[k.slice(5)] = state[k]; });
@@ -528,7 +531,7 @@ function viewPrep() {
   const logi = `<div class="sec"><div class="sec-label">Lodging and transport</div><h2>Getting around, staying put</h2>
     <div class="logi">
       <div class="lo-cell full"><div class="lo-k">Transport</div>
-        <div class="lo-v">${esc(t.recommended || '')}${t.lacc_distance ? `<span class="lo-sub">LACC is ${esc(t.lacc_distance)} from Silver Lake.</span>` : ''}</div></div>
+        <div class="lo-v">${esc(t.recommended || '')}${t.lacc_distance ? `<span class="lo-sub">The LACC is ${esc(t.lacc_distance)} away.</span>` : ''}</div></div>
       <div class="lo-cell"><div class="lo-k">Airport rides</div>
         <div class="lo-v">In <b>${esc(air.in || '')}</b> · out <b>${esc(air.out || '')}</b><span class="lo-sub">Uber both airport legs.</span></div></div>
       <div class="lo-cell"><div class="lo-k">Lodging</div>
@@ -542,12 +545,12 @@ function viewPrep() {
       ${bg.risk ? `<div class="bc-risk">${esc(bg.risk)}</div>` : ''}
     </div></div>`;
 
-  // Cannabis
-  const cann = (cn.note || cn.near_airport || cn.near_dans) ? `<div class="sec"><div class="sec-label">Cannabis</div><h2>Where and how, once you land</h2>
+  // Sundries: errands near the hotel
+  const cann = (sn.note || sn.near_hotel || sn.grocery) ? `<div class="sec"><div class="sec-label">Sundries</div><h2>Errands near the hotel</h2>
     <div class="cann">
-      ${cn.note ? `<div class="cn-note">${esc(cn.note)}</div>` : ''}
-      ${cn.near_airport ? `<div class="cn-sub"><div class="cn-k">Near the airport</div><div class="cn-v">${esc(cn.near_airport)}</div></div>` : ''}
-      ${cn.near_dans ? `<div class="cn-sub"><div class="cn-k">Near Dan's</div><div class="cn-v">${esc(cn.near_dans)}</div></div>` : ''}
+      ${sn.near_hotel ? `<div class="cn-sub"><div class="cn-k">The dispensary run</div><div class="cn-v">${esc(sn.near_hotel)}</div></div>` : ''}
+      ${sn.grocery ? `<div class="cn-sub" style="margin-top:12px"><div class="cn-k">Groceries</div><div class="cn-v">${esc(sn.grocery)}</div></div>` : ''}
+      ${sn.note ? `<div class="cn-note" style="margin-top:12px">${esc(sn.note)}</div>` : ''}
     </div></div>` : '';
 
   // Packing with gamified progress bar
@@ -580,13 +583,13 @@ function viewPrep() {
       <div class="bs-body"><div class="md">${renderMd(b.md)}</div></div></details>`).join('')}</div>` : '';
 
   // Tasks (checkable + editable + add)
-  const open = (DATA.tasks || []).filter(t => t.status !== 'done')
+  const open = (DATA.tasks || []).filter(t => !taskDone(t))
     .sort((a, b) => (a.priority === 'high' ? 0 : 1) - (b.priority === 'high' ? 0 : 1) || (a.due || '').localeCompare(b.due || ''));
-  const doneTasks = (DATA.tasks || []).filter(t => t.status === 'done');
-  const tasksHtml = `<div class="sec"><div class="sec-h2row"><h2>Before the floor opens</h2><button class="add-btn lg" data-add="task" aria-label="Add task">+</button></div>
+  const doneTasks = (DATA.tasks || []).filter(t => taskDone(t));
+  const tasksHtml = `<div class="sec"><h2>Before the floor opens</h2>
     <div class="sec-label" style="margin:8px 0 0">Tasks</div>
     <div class="handle" style="margin-top:10px">
-      ${open.length ? open.map(t => taskRowHtml(t)).join('') : '<div class="h-empty">Nothing open. Tap + to add.</div>'}
+      ${open.length ? open.map(t => taskRowHtml(t)).join('') : '<div class="h-empty">Nothing open.</div>'}
       ${doneTasks.map(t => taskRowHtml(t)).join('')}
     </div></div>`;
 
@@ -683,186 +686,84 @@ function sheetSession(id, keep) {
   $('#star').onclick = () => saveState('star:' + id, !isStarred(id));
 }
 
-/* ---------- People: editable contact sheet + add ---------- */
-const CONTACT_STATUS = ['target', 'requested', 'met', 'followup'];
+/* ---------- People: read-only contact detail (editing is the Agent's job) ---------- */
 function sheetPerson(id, keep) {
-  const isNew = id === 'new';
-  const c = isNew ? { id: '', name: '', role: '', company: '', status: 'target', opener: '', notes: '', objectives: [], hook_confirmed: false }
-                  : (DATA.contacts || []).find(x => x.id === id);
+  const c = (DATA.contacts || []).find(x => x.id === id);
   if (!c) return;
   sheetState = { kind: 'person', id };
   const objs = DATA.objectives || [], objMap = {}; objs.forEach(o => objMap[o.id] = o);
   const chips = (c.objectives || []).map(oid => { const o = objMap[oid]; return o ? `<span class="sh-chip">${esc(o.short)}</span>` : ''; }).join('');
-  const opts = CONTACT_STATUS.map(s => `<option value="${s}" ${c.status === s ? 'selected' : ''}>${s}</option>`).join('');
-  openSheet(`<div class="sh-kicker">${isNew ? 'New contact' : (c.hook_confirmed ? 'Hook confirmed' : 'Target')}</div>
-    <div class="ef"><label>Name</label><input id="f-name" type="text" value="${esc(c.name)}" placeholder="Full name"></div>
-    <div class="ef-row">
-      <div class="ef"><label>Role</label><input id="f-role" type="text" value="${esc(c.role || '')}" placeholder="Role"></div>
-      <div class="ef"><label>Company</label><input id="f-company" type="text" value="${esc(c.company || '')}" placeholder="Company"></div>
-    </div>
-    <div class="ef"><label>Status</label><select id="f-status">${opts}</select></div>
-    ${chips ? `<div class="lbl">Objectives</div><div class="sh-chips">${chips}</div>` : ''}
+  openSheet(`<div class="sh-kicker">${c.hook_confirmed ? 'Hook confirmed' : (c.status ? esc(c.status) : 'Contact')}</div>
+    <h3>${esc(c.name)}</h3>
+    <div class="meta">${esc(c.role || '')}${c.company ? ' · ' + esc(c.company) : ''}</div>
+    ${chips ? `<div class="sh-chips">${chips}</div>` : ''}
     ${c.source ? `<div class="lbl">Where to find</div><div class="val">${esc(c.source)}</div>` : ''}
-    <div class="ef"><label>Opener</label><textarea id="f-opener" rows="4" placeholder="Your opening line">${esc(c.opener || '')}</textarea></div>
-    <div class="ef"><label>Notes</label><textarea id="f-notes" rows="3" placeholder="Notes">${esc(c.notes || '')}</textarea></div>
-    <div class="ef-check"><label><input type="checkbox" id="f-hook" ${c.hook_confirmed ? 'checked' : ''}> Hook confirmed</label></div>
-    <div class="ef-actions">
-      <button class="btn primary" id="c-save">Save</button>
-      ${isNew ? '' : '<button class="btn danger" id="c-del">Delete</button>'}
-    </div>`, keep);
-  $('#c-save').onclick = async () => {
-    const row = {
-      id: isNew ? slug($('#f-name').value) : c.id,
-      name: $('#f-name').value.trim(),
-      role: $('#f-role').value.trim(),
-      company: $('#f-company').value.trim(),
-      status: $('#f-status').value,
-      opener: $('#f-opener').value.trim(),
-      notes: $('#f-notes').value.trim(),
-      hook_confirmed: $('#f-hook').checked,
-      objectives: c.objectives || [],
-      source: c.source || null, tags: c.tags || [],
-    };
-    if (!row.name) { $('#c-save').textContent = 'Name required'; return; }
-    $('#c-save').disabled = true; $('#c-save').textContent = 'Saving…';
-    sheetState = { kind: 'person', id: row.id };
-    await saveRow('contacts', row);
-    closeSheet();
-  };
-  const del = $('#c-del');
-  if (del) del.onclick = async () => { if (!confirm('Delete this contact?')) return; await deleteRow('contacts', c.id); closeSheet(); };
+    ${c.opener ? `<div class="lbl">Talking point</div><div class="val">${esc(c.opener)}</div>` : ''}
+    ${c.notes ? `<div class="lbl">Notes</div><div class="val">${esc(c.notes)}</div>` : ''}
+    ${c.hook_confirmed === false ? '<div class="warn">Hook unconfirmed, verify before leading with it.</div>' : ''}
+    <div class="sh-hint">Need this changed? Tell the Agent.</div>`, keep);
 }
 
-/* ---------- Tasks: editable task sheet + add ---------- */
-const TASK_PRI = ['high', 'med'];
-const TASK_STATUS = ['open', 'doing', 'done'];
+/* ---------- Tasks: read-only detail + a done toggle (adds/edits are the Agent's job) ---------- */
 function sheetTask(id, keep) {
-  const isNew = id === 'new';
-  const t = isNew ? { id: '', title: '', kind: '', due: '', status: 'open', priority: 'med' }
-                  : (DATA.tasks || []).find(x => x.id === id);
+  const t = (DATA.tasks || []).find(x => x.id === id);
   if (!t) return;
   sheetState = { kind: 'task', id };
-  const priOpts = TASK_PRI.map(p => `<option value="${p}" ${t.priority === p ? 'selected' : ''}>${p}</option>`).join('');
-  const stOpts = TASK_STATUS.map(s => `<option value="${s}" ${t.status === s ? 'selected' : ''}>${s}</option>`).join('');
-  openSheet(`<div class="sh-kicker">${isNew ? 'New task' : 'Task'}</div>
-    <div class="ef"><label>Title</label><textarea id="t-title" rows="2" placeholder="What needs doing">${esc(t.title)}</textarea></div>
-    <div class="ef-row">
-      <div class="ef"><label>Priority</label><select id="t-pri">${priOpts}</select></div>
-      <div class="ef"><label>Status</label><select id="t-status">${stOpts}</select></div>
-    </div>
-    <div class="ef-row">
-      <div class="ef"><label>Kind</label><input id="t-kind" type="text" value="${esc(t.kind || '')}" placeholder="admin, logistics…"></div>
-      <div class="ef"><label>Due</label><input id="t-due" type="date" value="${esc(t.due || '')}"></div>
-    </div>
-    <div class="ef-actions">
-      <button class="btn primary" id="t-save">Save</button>
-      ${isNew ? '' : '<button class="btn danger" id="t-del">Delete</button>'}
-    </div>`, keep);
-  $('#t-save').onclick = async () => {
-    const row = {
-      id: isNew ? 't-' + slug($('#t-title').value).slice(0, 20) : t.id,
-      title: $('#t-title').value.trim(),
-      kind: $('#t-kind').value.trim(),
-      due: $('#t-due').value || null,
-      status: $('#t-status').value,
-      priority: $('#t-pri').value,
-    };
-    if (!row.title) { $('#t-save').textContent = 'Title required'; return; }
-    $('#t-save').disabled = true; $('#t-save').textContent = 'Saving…';
-    sheetState = { kind: 'task', id: row.id };
-    await saveRow('tasks', row);
-    closeSheet();
-  };
-  const del = $('#t-del');
-  if (del) del.onclick = async () => { if (!confirm('Delete this task?')) return; await deleteRow('tasks', t.id); closeSheet(); };
+  const done = taskDone(t);
+  openSheet(`<div class="sh-kicker">Task${done ? ' · done' : ''}</div>
+    <h3>${esc(t.title)}</h3>
+    <div class="meta">${t.priority ? esc(t.priority) + ' priority' : ''}${t.kind ? ' · ' + esc(t.kind) : ''}${t.due ? ' · due ' + esc(t.due) : ''}</div>
+    ${(t.note || t.n) ? `<div class="lbl">Detail</div><div class="val">${esc(t.note || t.n)}</div>` : ''}
+    <div><button class="btn primary" id="t-toggle">${done ? 'Mark not done' : 'Mark done'}</button></div>
+    <div class="sh-hint">Need to add or change a task? Tell the Agent.</div>`, keep);
+  $('#t-toggle').onclick = async () => { await toggleTask(id); closeSheet(); };
 }
 async function toggleTask(id) {
   const t = (DATA.tasks || []).find(x => x.id === id); if (!t) return;
-  const status = t.status === 'done' ? 'open' : 'done';
-  await saveRow('tasks', { id: t.id, title: t.title, kind: t.kind, due: t.due, status, priority: t.priority });
+  await saveState('task:' + id, !taskDone(t));
 }
 
-/* ---------- Prep: editable budget line sheet + add spend ---------- */
-const PAYERS = ['Sean', 'Revolver', 'Dark Half'];
-function sheetBudget(id, keep) {
-  const isNew = id === 'new';
-  const items = DATA._budget_items || [];
-  const b = isNew ? { id: '', cat: '', label: '', amount: 0, qty: 1, payer: 'Sean', actual: false, note: '' }
-                  : items.find(x => x.id === id);
-  if (!b) return;
-  sheetState = { kind: 'budget', id };
-  const payerOpts = PAYERS.map(p => `<option value="${p}" ${b.payer === p ? 'selected' : ''}>${p}</option>`).join('');
-  openSheet(`<div class="sh-kicker">${isNew ? 'New spend' : 'Budget line'}</div>
-    <div class="ef"><label>Label</label><input id="b-label" type="text" value="${esc(b.label || '')}" placeholder="What is this"></div>
-    <div class="ef-row">
-      <div class="ef"><label>Category</label><input id="b-cat" type="text" value="${esc(b.cat || '')}" placeholder="Food, Transport…"></div>
-      <div class="ef"><label>Payer</label><select id="b-payer">${payerOpts}</select></div>
-    </div>
-    <div class="ef-row">
-      <div class="ef"><label>Amount</label><input id="b-amount" type="number" inputmode="decimal" step="0.01" value="${esc(b.amount)}"></div>
-      <div class="ef"><label>Qty</label><input id="b-qty" type="number" inputmode="numeric" step="1" min="1" value="${esc(b.qty || 1)}"></div>
-    </div>
-    <div class="ef"><label>Note</label><input id="b-note" type="text" value="${esc(b.note || '')}" placeholder="Optional"></div>
-    <div class="ef-check"><label><input type="checkbox" id="b-actual" ${b.actual ? 'checked' : ''}> Paid (actual, not estimate)</label></div>
-    <div class="ef-actions">
-      <button class="btn primary" id="b-save">Save</button>
-      ${isNew ? '' : '<button class="btn danger" id="b-del">Delete</button>'}
-    </div>`, keep);
-  $('#b-save').onclick = async () => {
-    const row = {
-      id: isNew ? uuid() : b.id,
-      cat: $('#b-cat').value.trim() || 'Misc',
-      label: $('#b-label').value.trim(),
-      amount: Number($('#b-amount').value || 0),
-      qty: parseInt($('#b-qty').value || '1', 10) || 1,
-      payer: $('#b-payer').value,
-      actual: $('#b-actual').checked,
-      note: $('#b-note').value.trim() || null,
-    };
-    if (!row.label) { $('#b-save').textContent = 'Label required'; return; }
-    $('#b-save').disabled = true; $('#b-save').textContent = 'Saving…';
-    sheetState = { kind: 'budget', id: row.id };
-    await saveRow('budget_items', row);
-    closeSheet();
-  };
-  const del = $('#b-del');
-  if (del) del.onclick = async () => { if (!confirm('Delete this line?')) return; await deleteRow('budget_items', b.id); closeSheet(); };
-}
-
-/* ---------- Money (cost tracking, its own module) ---------- */
+/* ---------- Money (the financial model, its own module) ---------- */
 function viewMoney() {
   const B = DATA.budget || {};
-  const body = `<div class="sec headview"><div class="sec-h2row"><h2>What the trip costs</h2><button class="add-btn lg" data-add="budget" aria-label="Add spend">+</button></div>
-    <div class="sec-label" style="margin:8px 0 0">Cost tracking</div>
+  const body = `<div class="sec headview"><h2>What the trip costs</h2>
+    <div class="sec-label" style="margin:8px 0 0">Financial model</div>
     <div class="bud-top">
       <div class="bud-big"><div class="bud-k">Your out of pocket</div><div class="bud-v tnum">$${B.your_cost || 0}<span> ${esc(B.currency || 'CAD')}</span></div></div>
       <div class="bud-cov">Covered <b class="tnum">$${B.covered || 0}</b>. Total trip <b class="tnum">$${B.total || 0}</b>.</div>
     </div>
     <div class="bud-cats">${(B.by_cat || []).map(c => `<div class="bud-cat"><span>${esc(c.cat)}</span><span class="tnum">$${c.total}</span></div>`).join('')}</div>
     <details class="brief" open><summary><span class="bs-t">Line items</span><span class="bs-i">+</span></summary><div class="bs-body">
-      ${(B.rows || []).map(r => `<div class="bud-row tap" data-bud="${esc(r.id)}"><div class="br-l">${esc(r.label)}<span class="br-m">${esc(r.cat)} · ${esc(r.payer)}${r.qty > 1 ? ' · x' + r.qty : ''} · ${r.actual ? 'paid' : 'est'}${r.note ? ' · ' + esc(r.note) : ''}</span></div><div class="br-amt tnum">$${r.line}</div></div>`).join('')}
+      ${(B.rows || []).map(r => `<div class="bud-row"><div class="br-l">${esc(r.label)}<span class="br-m">${esc(r.cat)} · ${esc(r.payer)}${r.qty > 1 ? ' · x' + r.qty : ''} · ${r.actual ? 'paid' : 'est'}${r.note ? ' · ' + esc(r.note) : ''}</span></div><div class="br-amt tnum">$${r.line}</div></div>`).join('')}
     </div></details>
-    <div class="sec-sub" style="margin-top:10px">Tap any line to edit. Actual = booked and paid. Everything else is a grounded estimate. Totals recompute live.</div></div>`;
+    <div class="sec-sub" style="margin-top:10px">Paid = booked and settled. Everything else is a grounded estimate in ${esc(B.currency || 'CAD')}. To change a number, tell the Agent.</div></div>`;
   render(body);
   tickCountdown();
-  document.querySelectorAll('[data-bud]').forEach(r => r.onclick = () => sheetBudget(r.dataset.bud));
-  document.querySelectorAll('[data-add="budget"]').forEach(b => b.onclick = () => sheetBudget('new'));
 }
 
-/* ---------- Capture (quick knowledge inbox) ---------- */
+/* ---------- Knowledge (capture inbox + what the reasoning flagged) ---------- */
 function capWhen(iso) {
   if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return '';
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
-function viewCapture() {
-  const caps = (DATA.captures || []).filter(c => !(c.tags || []).includes('ask'))
-    .slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+function viewKnowledge() {
+  const caps = (DATA.captures || []).slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
   const list = caps.length ? caps.map(c => `<div class="cap-item"><div><div class="ci-body">${esc(c.body)}</div>
       <div class="ci-meta">${(c.tags || []).map(t => `<span class="ci-tag">${esc(t)}</span>`).join('')}${esc(capWhen(c.created_at))}</div></div>
       <button class="ci-del" data-capdel="${esc(c.id)}" aria-label="delete">×</button></div>`).join('')
     : '<div class="empty">Nothing captured yet. Jot the thing before it evaporates.</div>';
+
+  // Reasoning: the high-value sessions the schedule analysis flagged that your plan does not include.
+  const days = (DATA.analysis && DATA.analysis.days) || {};
+  const missing = [];
+  Object.keys(days).forEach(dt => (days[dt].missing_cant_miss || []).forEach(m => missing.push({ ...m, date: dt })));
+  const reasoning = missing.length ? `<details class="brief"><summary><span class="bs-t">What the reasoning flagged (${missing.length})</span><span class="bs-i">+</span></summary><div class="bs-body">
+      <div class="sec-sub" style="margin-bottom:10px">High-value sessions the analysis found that your day plan does not include yet. Same-time clashes and A/B picks live in Today.</div>
+      ${missing.map(m => `<div class="reason-row"><div class="rr-when tnum">${esc(shortDate(m.date))}${m.time ? ' · ' + esc(m.time) : ''}</div><div><div class="rr-t">${esc(m.title)}</div>${m.why ? `<div class="rr-w">${esc(m.why)}</div>` : ''}</div></div>`).join('')}
+    </div></details>` : '';
+
   render(
-    `<div class="sec headview"><div class="sec-label">Capture</div><h2>Knowledge inbox</h2>
+    `<div class="sec headview"><div class="sec-label">Knowledge</div><h2>Knowledge &amp; reasoning</h2>
       <div class="sec-sub">A name, a link, a thing you saw on the floor. Drop it now, triage later. Syncs across devices.</div>
       <div class="cap-compose">
         <textarea id="cap-txt" placeholder="What do you want to remember?"></textarea>
@@ -872,6 +773,7 @@ function viewCapture() {
           <button class="btn primary cap-save" id="cap-save">Save</button>
         </div>
       </div>
+      ${reasoning}
       ${list}</div>`);
   tickCountdown();
   $('#cap-mic').onclick = () => dictate($('#cap-txt'), $('#cap-mic'));
@@ -883,38 +785,39 @@ function viewCapture() {
   document.querySelectorAll('[data-capdel]').forEach(b => b.onclick = async () => { if (!confirm('Delete this capture?')) return; await deleteRow('captures', b.dataset.capdel); });
 }
 
-/* ---------- Ask (the voice-note agent surface) ---------- */
-function viewAsk() {
-  const asks = (DATA.captures || []).filter(c => (c.tags || []).includes('ask'))
-    .slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-  const thread = asks.map(c => {
-    const reply = (DATA.captures || []).find(r => (r.tags || []).includes('ask-reply') && r.reply_to === c.id);
-    return `<div class="ask-msg you"><div class="am-k">You asked</div><div class="am-body">${esc(c.body)}</div>
-      <div class="am-when">${esc(capWhen(c.created_at))}</div>
-      <span class="ask-status ${c.status === 'done' ? 'done' : 'pending'}">${c.status === 'done' ? 'handled' : 'queued'}</span></div>
-      ${reply ? `<div class="ask-msg agent"><div class="am-k">Agent</div><div class="am-body">${esc(reply.body)}</div><div class="am-when">${esc(capWhen(reply.created_at))}</div></div>` : ''}`;
-  }).join('');
+/* ---------- Agent (a real chat: you talk, it changes the plan, it reports back) ---------- */
+function viewAgent() {
+  const chat = DATA.chat || []; // sorted ascending in mergeData
+  const last = chat[chat.length - 1];
+  const waiting = last && last.role === 'user';
+  const bubbles = chat.length ? chat.map(m => {
+    const who = m.role === 'agent' ? 'agent' : 'user';
+    const changes = (m.meta && m.meta.changes) || m.changes;
+    const chHtml = Array.isArray(changes) && changes.length
+      ? `<div class="cbub-changes"><div class="cc-k">Changes made</div>${changes.map(c => `<div class="cc-row">${esc(typeof c === 'string' ? c : (c.summary || JSON.stringify(c)))}</div>`).join('')}</div>` : '';
+    return `<div class="cbub ${who}"><div class="cb-body">${esc(m.body)}</div>${chHtml}<div class="cb-when">${esc(capWhen(m.created_at))}</div></div>`;
+  }).join('') : `<div class="chat-empty">Talk to Circuit like you talk to me. Ask it to move a session, add a contact, adjust the budget, rework the plan. It makes the change and tells you what it did.</div>`;
+
   render(
-    `<div class="sec headview"><div class="sec-label">Ask</div><h2>Talk to the harness</h2>
-      <div class="ask-lede">Drop a voice note the way you would to me. When the laptop is on, the harness reads it, audits the plan, works out the schedule and logistics changes, and pushes them back here. Queued notes wait until it can run.</div>
-      <div class="ask-rec">
-        <button class="ar-mic" id="ask-mic" aria-label="record"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg></button>
-        <div class="ar-state" id="ask-state">Tap to record</div>
-      </div>
-      <textarea class="ask-transcript" id="ask-txt" placeholder="…or type what you need changed"></textarea>
-      <button class="btn primary ask-send" id="ask-send">Send to the harness</button>
-      <div class="ask-thread">${thread}</div>
+    `<div class="sec headview agent-view"><div class="sec-label">Agent</div><h2>Talk to Circuit</h2>
+      <div class="chat" id="chat">${bubbles}${waiting ? '<div class="chat-working">Queued. The agent runs when the laptop is on, then replies here.</div>' : ''}</div>
+    </div>
+    <div class="chat-dock">
+      <button class="chat-mic" id="chat-mic" aria-label="dictate"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg></button>
+      <textarea class="chat-in" id="chat-in" rows="1" placeholder="Ask Circuit to change something…"></textarea>
+      <button class="chat-send" id="chat-send" aria-label="send"><svg viewBox="0 0 24 24"><path d="M12 20V6M6 12l6-6 6 6"/></svg></button>
     </div>`);
   tickCountdown();
-  const mic = $('#ask-mic'), st = $('#ask-state');
-  mic.onclick = () => dictate($('#ask-txt'), mic,
-    () => { st.textContent = 'Tap to record'; st.classList.remove('live'); },
-    () => { st.textContent = 'Listening…'; st.classList.add('live'); });
-  $('#ask-send').onclick = async () => {
-    const body = ($('#ask-txt').value || '').trim(); if (!body) return;
-    $('#ask-send').disabled = true; $('#ask-send').textContent = 'Queued';
-    await saveRow('captures', { id: uuid(), body, tags: ['ask'], status: 'pending', created_at: new Date().toISOString() });
+  const box = $('#chat'); if (box) box.scrollTop = box.scrollHeight;
+  const inp = $('#chat-in'), mic = $('#chat-mic');
+  mic.onclick = () => dictate(inp, mic);
+  const send = async () => {
+    const body = (inp.value || '').trim(); if (!body) return;
+    inp.value = '';
+    await saveRow('chat', { id: uuid(), role: 'user', body, status: 'pending', created_at: new Date().toISOString() });
   };
+  $('#chat-send').onclick = send;
+  inp.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
 }
 
 /* ---------- shared: in-browser dictation (Web Speech) ---------- */
@@ -932,16 +835,16 @@ function dictate(targetEl, btnEl, onStop, onStart) {
   try { r.start(); } catch (e) {}
 }
 
-/* ---------- FAB: quick chooser for Ask / Capture (mobile) ---------- */
+/* ---------- FAB: quick chooser for Agent / Knowledge (mobile) ---------- */
 function openFabMenu() {
   openSheet(`<div class="sh-kicker">Quick</div><h3>Drop it in</h3>
     <div class="fab-menu">
-      <button class="btn primary" id="fm-ask">Ask the agent</button>
+      <button class="btn primary" id="fm-ask">Talk to the Agent</button>
       <button class="btn" id="fm-cap">Capture a thought</button>
     </div>
-    <div class="sec-sub" style="margin-top:16px">Ask changes the plan. Capture just remembers it.</div>`);
-  $('#fm-ask').onclick = () => { closeSheet(); location.hash = '#/ask'; };
-  $('#fm-cap').onclick = () => { closeSheet(); location.hash = '#/capture'; };
+    <div class="sec-sub" style="margin-top:16px">The Agent changes the plan. Knowledge just remembers it.</div>`);
+  $('#fm-ask').onclick = () => { closeSheet(); location.hash = '#/agent'; };
+  $('#fm-cap').onclick = () => { closeSheet(); location.hash = '#/knowledge'; };
 }
 
 boot();

@@ -7,7 +7,9 @@ window.DB = (() => {
   const sb = ready ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON, {
     auth: { persistSession: true, autoRefreshToken: true }
   }) : null;
-  const TABLES = ['contacts', 'tasks', 'meetings', 'budget_items', 'item_state', 'captures'];
+  // Reference data (contacts, tasks, budget, schedule) ships static in the bundle.
+  // Supabase holds ONLY what the user generates live, so there is nothing to seed and nothing to drift.
+  const TABLES = ['item_state', 'captures', 'chat'];
   const QKEY = 'circuit:wq';
   const cacheGet = t => { try { return JSON.parse(localStorage.getItem('circuit:cache:' + t) || '[]'); } catch { return []; } };
   const cacheSet = (t, rows) => localStorage.setItem('circuit:cache:' + t, JSON.stringify(rows));
@@ -54,6 +56,8 @@ window.DB = (() => {
 
   // item_state has a composite primary key (owner, key) and no id column.
   const rowKey = (table, r) => table === 'item_state' ? r.key : r.id;
+  // Synchronous local cache write, so the UI can render a change instantly, before the network round-trip.
+  const cachePut = (t, row) => { const k = rowKey(t, row); const rows = cacheGet(t).filter(r => rowKey(t, r) !== k); rows.push(row); cacheSet(t, rows); };
   const serverRow = (table, row, owner) => {
     // Strip client-only fields the table does not have before sending to PostgREST.
     if (table === 'item_state') { const { id, ...rest } = row; return { ...rest, owner }; }
@@ -106,5 +110,5 @@ window.DB = (() => {
     onChange(cb) { if (ready) sb.auth.onAuthStateChange((_e, s) => cb(s)); },
   };
 
-  return { ready, TABLES, loadAll, upsert, remove, subscribe, flush, auth, cacheGet };
+  return { ready, TABLES, loadAll, upsert, remove, subscribe, flush, auth, cacheGet, cachePut };
 })();
