@@ -167,6 +167,7 @@ function start() {
   $('#app').classList.remove('hide');
   window.addEventListener('hashchange', route);
   document.querySelectorAll('nav.tabs a').forEach(a => a.onclick = () => { location.hash = '#/' + a.dataset.route; });
+  const fab = $('#fab'); if (fab) fab.onclick = openFabMenu;
   $('#scrim').onclick = closeSheet;
   setCtx();
   if (!location.hash) location.hash = '#/today';
@@ -180,20 +181,23 @@ function setCtx() {
 }
 
 /* ---------- router ---------- */
+const TABS = ['today', 'schedule', 'people', 'prep', 'money', 'capture', 'ask'];
+const VIEWS = { today: viewToday, schedule: viewSchedule, people: viewPeople, prep: viewPrep, money: viewMoney, capture: viewCapture, ask: viewAsk };
 function route() {
   const [seg, id] = (location.hash.replace('#/', '') + '/').split('/');
-  const tab = ['today', 'schedule', 'people', 'prep'].includes(seg) ? seg : 'today';
+  const tab = TABS.includes(seg) ? seg : 'today';
   document.querySelectorAll('nav.tabs a').forEach(a => a.classList.toggle('on', a.dataset.route === tab));
-  ({ today: viewToday, schedule: viewSchedule, people: viewPeople, prep: viewPrep }[tab])();
-  if (id) { tab === 'people' ? sheetPerson(id) : sheetSession(id); } else closeSheet();
+  const fab = document.getElementById('fab'); if (fab) fab.style.display = (tab === 'capture' || tab === 'ask') ? 'none' : '';
+  VIEWS[tab]();
+  if (id && (tab === 'people' || tab === 'schedule')) { tab === 'people' ? sheetPerson(id) : sheetSession(id); } else closeSheet();
   window.scrollTo(0, 0);
 }
 // Re-render the active view in place after a DB change, without scroll-jumping or forcing a route.
 function rerender() {
   const seg = (location.hash.replace('#/', '') + '/').split('/')[0];
-  const tab = ['today', 'schedule', 'people', 'prep'].includes(seg) ? seg : 'today';
+  const tab = TABS.includes(seg) ? seg : 'today';
   const y = window.scrollY;
-  ({ today: viewToday, schedule: viewSchedule, people: viewPeople, prep: viewPrep }[tab])();
+  VIEWS[tab]();
   // if a sheet is open, refresh its contents from the new data
   if (sheetState.kind === 'person') sheetPerson(sheetState.id, true);
   else if (sheetState.kind === 'task') sheetTask(sheetState.id, true);
@@ -285,6 +289,11 @@ function viewToday() {
   const d = days[curDay], meta = DATA.dayplan.meta || {};
   const isToday = d.date === tISO;
 
+  // Reasoning layer: same-time clashes, A/B branches, can't-miss stars for this day.
+  const an = (DATA.analysis && DATA.analysis.days && DATA.analysis.days[d.date]) || {};
+  const cantMiss = (an.cant_miss || []).map(x => (x.title || '').toLowerCase().trim()).filter(Boolean);
+  const isCantMiss = t => { const s = (t || '').toLowerCase().trim(); return !!s && cantMiss.some(cm => cm === s || cm.includes(s) || s.includes(cm)); };
+
   // Day chips
   const sel = days.map((x, i) => `<button class="chip ${i === curDay ? 'on' : ''}" data-day="${i}">${esc(x.label.slice(0,3))}<span style="opacity:.6;margin-left:5px;font-weight:400">${shortDate(x.date)}</span></button>`).join('');
 
@@ -326,12 +335,13 @@ function viewToday() {
     else if (i === nextIdx) { extra += ' is-next'; markAttr = ' data-mark="Next"'; }
     if (k === 'flex') extra += ' flex';
     if (k === 'dressup') extra += ' dressup';
+    if (isCantMiss(b.t)) extra += ' cant-miss';
     const timeCol = !b.s
       ? '<div class="b-time floating">Floating</div>'
       : `<div class="b-time tnum">${esc(b.s)}${b.e ? '<span class="b-end">' + esc(b.e) + '</span>' : ''}</div>`;
     let body = '<div class="b-body">';
     body += `<div class="b-top"><span class="kchip ${k}">${esc(KIND_LABEL[k] || k)}</span><button class="b-check${bdone ? ' on' : ''}" data-bcheck="${esc(bkey)}" aria-label="mark done"></button></div>`;
-    body += `<div class="b-title">${esc(b.t)}</div>`;
+    body += `<div class="b-title">${isCantMiss(b.t) ? '<span class="cm-star">★</span> ' : ''}${esc(b.t)}</div>`;
     if (b.w) body += `<div class="b-where">${placeLink(b.w)}</div>`;
     if (b.who) body += `<div class="b-who"><span class="who-lead">Catch</span>${esc(b.who)}</div>`;
     if (k === 'flex') body += '<span class="flex-flag">Protected, keep open</span>';
@@ -352,6 +362,16 @@ function viewToday() {
     ${marquee.map(s => `<div class="m-row"><div class="m-time tnum">${esc(s.start || '')}${s.end ? ' to ' + esc(s.end) : ''}</div>
       <div class="m-title">${esc(s.title)}</div><div class="m-room">${placeLink(s.room)}</div></div>`).join('')}</div>` : '';
 
+  // Same-time decisions: conflicts to know about + A/B branches to pick.
+  const branches = an.branches || [], conflicts = an.conflicts || [];
+  const decisionsHtml = (branches.length || conflicts.length) ? `<div class="decisions">
+    ${conflicts.map(c => `<div class="conflict-row"><span class="conflict-flag">Clash ${esc(c.when || '')}</span><span class="cf-txt">${esc((c.blocks || []).join('  vs  '))}${c.reason ? ' — ' + esc(c.reason) : ''}</span></div>`).join('')}
+    ${branches.map(b => `<div class="branch"><div class="br-h"><span class="br-k">Pick one</span><span class="br-t">${esc(b.at || '')}</span></div>
+      ${(b.options || []).map(o => `<div class="br-opt${b.recommend && o.label === b.recommend ? ' pick' : ''}"><div class="br-lab">${esc(o.label || '')}</div>
+        <div><div class="br-ot">${esc(o.title || '')}</div>${o.why ? `<div class="br-ow">${esc(o.why)}</div>` : ''}</div></div>`).join('')}
+    </div>`).join('')}
+  </div>` : '';
+
   render(masthead() +
     handle +
     `<div class="day-head"><div class="day-tag">${esc(d.tag || 'Run of day')}</div>
@@ -359,6 +379,7 @@ function viewToday() {
      <div class="chips" style="margin-top:12px">${sel}</div>
      ${nowbar}
      ${meta.energy ? `<div class="energy-note">${esc(meta.energy)}</div>` : ''}
+     ${decisionsHtml}
      <div class="timeline">${blocks}</div>
      ${marqueeHtml}`);
 
@@ -569,20 +590,6 @@ function viewPrep() {
       ${doneTasks.map(t => taskRowHtml(t)).join('')}
     </div></div>`;
 
-  // Budget (recomputed live in JS from the current budget_items rows)
-  const B = DATA.budget || {};
-  const budgetHtml = `<div class="sec"><div class="sec-h2row"><h2>What the trip costs</h2><button class="add-btn lg" data-add="budget" aria-label="Add spend">+</button></div>
-    <div class="sec-label" style="margin:8px 0 0">Budget</div>
-    <div class="bud-top">
-      <div class="bud-big"><div class="bud-k">Your out of pocket</div><div class="bud-v tnum">$${B.your_cost || 0}<span> ${esc(B.currency || 'CAD')}</span></div></div>
-      <div class="bud-cov">Covered <b class="tnum">$${B.covered || 0}</b>. Total trip <b class="tnum">$${B.total || 0}</b>.</div>
-    </div>
-    <div class="bud-cats">${(B.by_cat || []).map(c => `<div class="bud-cat"><span>${esc(c.cat)}</span><span class="tnum">$${c.total}</span></div>`).join('')}</div>
-    <details class="brief" open><summary><span class="bs-t">Line items</span><span class="bs-i">+</span></summary><div class="bs-body">
-      ${(B.rows || []).map(r => `<div class="bud-row tap" data-bud="${esc(r.id)}"><div class="br-l">${esc(r.label)}<span class="br-m">${esc(r.cat)} · ${esc(r.payer)}${r.qty > 1 ? ' · x' + r.qty : ''} · ${r.actual ? 'paid' : 'est'}${r.note ? ' · ' + esc(r.note) : ''}</span></div><div class="br-amt tnum">$${r.line}</div></div>`).join('')}
-    </div></details>
-    <div class="sec-sub" style="margin-top:10px">Tap any line to edit. Actual = booked and paid. Everything else is a grounded estimate. Totals recompute live.</div></div>`;
-
   // Venue map (grounded, real links)
   const SIGMAP = 'https://maps.goeshow.com/acm/siggraph/2026/floor_map';
   const venueHtml = `<div class="sec"><div class="sec-label">Venue map</div><h2>Where things are</h2>
@@ -598,14 +605,11 @@ function viewPrep() {
     <div class="zone"><span class="zn">400 / 500 rooms</span><span class="zd">Papers, courses, the NVIDIA 502A block, industry sessions.</span></div>
     <div class="sec-sub" style="margin-top:12px">Tap any room in the schedule to open the interactive map for the exact spot.</div></div>`;
 
-  render(masthead() + budgetHtml + flights + logi + venueHtml + cann + packing + briefsHtml + tasksHtml);
+  // ADHD helper order: what to DO first (tasks, packing), then the reference you reach for.
+  render(masthead() + tasksHtml + packing + flights + logi + cann + venueHtml + briefsHtml);
 
   tickCountdown();
   bindTaskRows();
-
-  // Budget line taps + add
-  document.querySelectorAll('[data-bud]').forEach(r => r.onclick = () => sheetBudget(r.dataset.bud));
-  document.querySelectorAll('[data-add="budget"]').forEach(b => b.onclick = () => sheetBudget('new'));
 
   // Packing interactions -> item_state (synced). Optimistic: flip the bar immediately, persist in the background.
   const localChecks = { ...checks };
@@ -823,6 +827,121 @@ function sheetBudget(id, keep) {
   };
   const del = $('#b-del');
   if (del) del.onclick = async () => { if (!confirm('Delete this line?')) return; await deleteRow('budget_items', b.id); closeSheet(); };
+}
+
+/* ---------- Money (cost tracking, its own module) ---------- */
+function viewMoney() {
+  const B = DATA.budget || {};
+  const body = `<div class="sec headview"><div class="sec-h2row"><h2>What the trip costs</h2><button class="add-btn lg" data-add="budget" aria-label="Add spend">+</button></div>
+    <div class="sec-label" style="margin:8px 0 0">Cost tracking</div>
+    <div class="bud-top">
+      <div class="bud-big"><div class="bud-k">Your out of pocket</div><div class="bud-v tnum">$${B.your_cost || 0}<span> ${esc(B.currency || 'CAD')}</span></div></div>
+      <div class="bud-cov">Covered <b class="tnum">$${B.covered || 0}</b>. Total trip <b class="tnum">$${B.total || 0}</b>.</div>
+    </div>
+    <div class="bud-cats">${(B.by_cat || []).map(c => `<div class="bud-cat"><span>${esc(c.cat)}</span><span class="tnum">$${c.total}</span></div>`).join('')}</div>
+    <details class="brief" open><summary><span class="bs-t">Line items</span><span class="bs-i">+</span></summary><div class="bs-body">
+      ${(B.rows || []).map(r => `<div class="bud-row tap" data-bud="${esc(r.id)}"><div class="br-l">${esc(r.label)}<span class="br-m">${esc(r.cat)} · ${esc(r.payer)}${r.qty > 1 ? ' · x' + r.qty : ''} · ${r.actual ? 'paid' : 'est'}${r.note ? ' · ' + esc(r.note) : ''}</span></div><div class="br-amt tnum">$${r.line}</div></div>`).join('')}
+    </div></details>
+    <div class="sec-sub" style="margin-top:10px">Tap any line to edit. Actual = booked and paid. Everything else is a grounded estimate. Totals recompute live.</div></div>`;
+  render(body);
+  tickCountdown();
+  document.querySelectorAll('[data-bud]').forEach(r => r.onclick = () => sheetBudget(r.dataset.bud));
+  document.querySelectorAll('[data-add="budget"]').forEach(b => b.onclick = () => sheetBudget('new'));
+}
+
+/* ---------- Capture (quick knowledge inbox) ---------- */
+function capWhen(iso) {
+  if (!iso) return ''; const d = new Date(iso); if (isNaN(d)) return '';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+function viewCapture() {
+  const caps = (DATA.captures || []).filter(c => !(c.tags || []).includes('ask'))
+    .slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  const list = caps.length ? caps.map(c => `<div class="cap-item"><div><div class="ci-body">${esc(c.body)}</div>
+      <div class="ci-meta">${(c.tags || []).map(t => `<span class="ci-tag">${esc(t)}</span>`).join('')}${esc(capWhen(c.created_at))}</div></div>
+      <button class="ci-del" data-capdel="${esc(c.id)}" aria-label="delete">×</button></div>`).join('')
+    : '<div class="empty">Nothing captured yet. Jot the thing before it evaporates.</div>';
+  render(
+    `<div class="sec headview"><div class="sec-label">Capture</div><h2>Knowledge inbox</h2>
+      <div class="sec-sub">A name, a link, a thing you saw on the floor. Drop it now, triage later. Syncs across devices.</div>
+      <div class="cap-compose">
+        <textarea id="cap-txt" placeholder="What do you want to remember?"></textarea>
+        <div class="cap-bar">
+          <button class="cap-mic" id="cap-mic" aria-label="dictate"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg></button>
+          <div class="cap-hint">Tap the mic to dictate, or type.</div>
+          <button class="btn primary cap-save" id="cap-save">Save</button>
+        </div>
+      </div>
+      ${list}</div>`);
+  tickCountdown();
+  $('#cap-mic').onclick = () => dictate($('#cap-txt'), $('#cap-mic'));
+  $('#cap-save').onclick = async () => {
+    const body = ($('#cap-txt').value || '').trim(); if (!body) return;
+    $('#cap-save').disabled = true;
+    await saveRow('captures', { id: uuid(), body, tags: ['note'], status: 'inbox', created_at: new Date().toISOString() });
+  };
+  document.querySelectorAll('[data-capdel]').forEach(b => b.onclick = async () => { if (!confirm('Delete this capture?')) return; await deleteRow('captures', b.dataset.capdel); });
+}
+
+/* ---------- Ask (the voice-note agent surface) ---------- */
+function viewAsk() {
+  const asks = (DATA.captures || []).filter(c => (c.tags || []).includes('ask'))
+    .slice().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  const thread = asks.map(c => {
+    const reply = (DATA.captures || []).find(r => (r.tags || []).includes('ask-reply') && r.reply_to === c.id);
+    return `<div class="ask-msg you"><div class="am-k">You asked</div><div class="am-body">${esc(c.body)}</div>
+      <div class="am-when">${esc(capWhen(c.created_at))}</div>
+      <span class="ask-status ${c.status === 'done' ? 'done' : 'pending'}">${c.status === 'done' ? 'handled' : 'queued'}</span></div>
+      ${reply ? `<div class="ask-msg agent"><div class="am-k">Agent</div><div class="am-body">${esc(reply.body)}</div><div class="am-when">${esc(capWhen(reply.created_at))}</div></div>` : ''}`;
+  }).join('');
+  render(
+    `<div class="sec headview"><div class="sec-label">Ask</div><h2>Talk to the harness</h2>
+      <div class="ask-lede">Drop a voice note the way you would to me. When the laptop is on, the harness reads it, audits the plan, works out the schedule and logistics changes, and pushes them back here. Queued notes wait until it can run.</div>
+      <div class="ask-rec">
+        <button class="ar-mic" id="ask-mic" aria-label="record"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg></button>
+        <div class="ar-state" id="ask-state">Tap to record</div>
+      </div>
+      <textarea class="ask-transcript" id="ask-txt" placeholder="…or type what you need changed"></textarea>
+      <button class="btn primary ask-send" id="ask-send">Send to the harness</button>
+      <div class="ask-thread">${thread}</div>
+    </div>`);
+  tickCountdown();
+  const mic = $('#ask-mic'), st = $('#ask-state');
+  mic.onclick = () => dictate($('#ask-txt'), mic,
+    () => { st.textContent = 'Tap to record'; st.classList.remove('live'); },
+    () => { st.textContent = 'Listening…'; st.classList.add('live'); });
+  $('#ask-send').onclick = async () => {
+    const body = ($('#ask-txt').value || '').trim(); if (!body) return;
+    $('#ask-send').disabled = true; $('#ask-send').textContent = 'Queued';
+    await saveRow('captures', { id: uuid(), body, tags: ['ask'], status: 'pending', created_at: new Date().toISOString() });
+  };
+}
+
+/* ---------- shared: in-browser dictation (Web Speech) ---------- */
+let _rec = null;
+function dictate(targetEl, btnEl, onStop, onStart) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { alert('Voice input is not supported in this browser. Type it instead.'); return; }
+  if (_rec) { _rec.stop(); return; }
+  const r = new SR(); _rec = r; r.lang = 'en-US'; r.interimResults = true; r.continuous = true;
+  const base = targetEl.value ? targetEl.value + ' ' : '';
+  btnEl.classList.add('recording'); if (onStart) onStart();
+  r.onresult = e => { let txt = ''; for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript; targetEl.value = base + txt; };
+  r.onend = () => { btnEl.classList.remove('recording'); _rec = null; if (onStop) onStop(); };
+  r.onerror = () => { btnEl.classList.remove('recording'); _rec = null; if (onStop) onStop(); };
+  try { r.start(); } catch (e) {}
+}
+
+/* ---------- FAB: quick chooser for Ask / Capture (mobile) ---------- */
+function openFabMenu() {
+  openSheet(`<div class="sh-kicker">Quick</div><h3>Drop it in</h3>
+    <div class="fab-menu">
+      <button class="btn primary" id="fm-ask">Ask the agent</button>
+      <button class="btn" id="fm-cap">Capture a thought</button>
+    </div>
+    <div class="sec-sub" style="margin-top:16px">Ask changes the plan. Capture just remembers it.</div>`);
+  $('#fm-ask').onclick = () => { closeSheet(); location.hash = '#/ask'; };
+  $('#fm-cap').onclick = () => { closeSheet(); location.hash = '#/capture'; };
 }
 
 boot();
