@@ -319,7 +319,9 @@ function viewToday() {
   // Timeline
   const blocks = d.blocks.map((b, i) => {
     const k = b.k || 'session';
-    let extra = '', markAttr = '';
+    const bkey = 'block:' + d.date + ':' + i;
+    const bdone = !!(DATA._state && DATA._state[bkey]);
+    let extra = bdone ? ' done' : '', markAttr = '';
     if (i === nowIdx) { extra += ' is-now'; markAttr = ' data-mark="Now"'; }
     else if (i === nextIdx) { extra += ' is-next'; markAttr = ' data-mark="Next"'; }
     if (k === 'flex') extra += ' flex';
@@ -328,7 +330,7 @@ function viewToday() {
       ? '<div class="b-time floating">Floating</div>'
       : `<div class="b-time tnum">${esc(b.s)}${b.e ? '<span class="b-end">' + esc(b.e) + '</span>' : ''}</div>`;
     let body = '<div class="b-body">';
-    body += `<div class="b-top"><span class="kchip ${k}">${esc(KIND_LABEL[k] || k)}</span></div>`;
+    body += `<div class="b-top"><span class="kchip ${k}">${esc(KIND_LABEL[k] || k)}</span><button class="b-check${bdone ? ' on' : ''}" data-bcheck="${esc(bkey)}" aria-label="mark done"></button></div>`;
     body += `<div class="b-title">${esc(b.t)}</div>`;
     if (b.w) body += `<div class="b-where">${placeLink(b.w)}</div>`;
     if (b.who) body += `<div class="b-who"><span class="who-lead">Catch</span>${esc(b.who)}</div>`;
@@ -340,7 +342,11 @@ function viewToday() {
   }).join('');
 
   // Tonight's marquee: marquee sessions on this day, evening kinds
-  const marquee = (DATA.sessions || []).filter(s => s.marquee && (s.kind === 'event' || s.kind === 'keynote') && s.day && s.day.startsWith(d.label + ' ' + MONTHS[+d.date.split('-')[1]-1]))
+  // Match by day-of-month from the session's day text ("Wednesday July 22" -> 22), NOT by weekday label
+  // (a prep Wednesday and the conference Wednesday share a label). Prep days have no sessions, so empty.
+  const dnum = +d.date.split('-')[2];
+  const marquee = (DATA.sessions || []).filter(s => s.marquee && (s.kind === 'event' || s.kind === 'keynote')
+      && s.day && parseInt((s.day.match(/\b(\d{1,2})\b/) || [])[1], 10) === dnum)
     .sort((a, b) => (a.start || '').localeCompare(b.start || ''));
   const marqueeHtml = marquee.length ? `<div class="marquee"><div class="m-k">Tonight's marquee</div>
     ${marquee.map(s => `<div class="m-row"><div class="m-time tnum">${esc(s.start || '')}${s.end ? ' to ' + esc(s.end) : ''}</div>
@@ -358,6 +364,10 @@ function viewToday() {
 
   tickCountdown();
   bindTaskRows();
+  document.querySelectorAll('[data-bcheck]').forEach(b => b.onclick = e => {
+    e.stopPropagation(); const key = b.dataset.bcheck;
+    saveState(key, !(DATA._state && DATA._state[key]));
+  });
   document.querySelectorAll('[data-day]').forEach(b => b.onclick = () => { curDay = +b.dataset.day; viewToday(); window.scrollTo(0, 0); });
 }
 
@@ -389,7 +399,10 @@ function viewSchedule() {
   const starChip = `<button class="chip ${schFilter.star ? 'on' : ''}" data-f="star" data-v="1">★ Starred</button>`;
 
   const dayKey = s => (s.day || 'TBD').match(/^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\s+\w+\s+\d+/) ? s.day.match(/^(?:Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)\s+\w+\s+\d+/)[0] : (s.day || 'TBD');
-  let list = S.filter(s =>
+  // The main program excludes marquee items (they are featured above in Experience Hall),
+  // so nothing shows twice.
+  const prog = S.filter(s => !s.marquee);
+  let list = prog.filter(s =>
     (schFilter.day === 'all' || dayKey(s) === schFilter.day) &&
     (schFilter.obj === 'all' || (s.objectives || []).includes(schFilter.obj)) &&
     (!schFilter.star || starred[s.id]));
@@ -408,7 +421,7 @@ function viewSchedule() {
 
   render(masthead() + hall +
     `<div class="sec"><div class="sec-label">Program</div><h2>The full schedule</h2>
-      <div class="sec-sub">${list.length} of ${S.length} sessions</div>
+      <div class="sec-sub">${list.length} of ${prog.length} sessions</div>
       <div class="chips" style="margin-top:14px">${dayChips}</div>
       <div class="chips">${starChip}${objChips}</div>
       ${program}</div>`);

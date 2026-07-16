@@ -28,8 +28,8 @@ button{font:inherit;cursor:pointer;}
 /* app frame */
 #app{min-height:100%;padding-bottom:calc(var(--tab-h) + env(safe-area-inset-bottom));}
 .topbar{position:sticky;top:0;background:rgba(255,255,255,0.96);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom:1px solid var(--line);z-index:20;}
-.topbar .wrap{display:flex;align-items:baseline;gap:12px;height:52px;}
-.topbar .b{font-size:19px;font-weight:700;letter-spacing:-0.02em;}
+.topbar .wrap{display:flex;align-items:baseline;gap:12px;height:60px;}
+.topbar .b{font-size:26px;font-weight:700;letter-spacing:-0.02em;}
 .topbar .b span{color:var(--red);}
 .topbar .ctx{font-size:11px;color:var(--faint);margin-left:auto;text-align:right;letter-spacing:0.02em;}
 
@@ -344,3 +344,11 @@ nav.tabs a.on{color:var(--red);}
 .btn.danger:active{background:rgba(227,6,19,0.06);}
 .btn:disabled{opacity:.6;}
 #sheet h3{margin-top:6px;}
+
+/* checkable day-plan blocks */
+.block .b-top{display:flex;align-items:center;gap:8px;}
+.b-check{margin-left:auto;flex:0 0 22px;width:22px;height:22px;border:2px solid var(--line);border-radius:6px;background:#fff;position:relative;cursor:pointer;padding:0;}
+.b-check.on{background:var(--red);border-color:var(--red);}
+.b-check.on::after{content:"";position:absolute;left:6px;top:2px;width:5px;height:11px;border:solid #fff;border-width:0 3px 3px 0;transform:rotate(45deg);}
+.block.done .b-title{text-decoration:line-through;text-decoration-color:var(--line);color:var(--faint);}
+.block.done{opacity:.72;}
