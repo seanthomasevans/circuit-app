@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1">
+<title>Circuit</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#111111">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<div id="gate">
+  <div class="box">
+    <div class="brand">Circuit<span>.</span></div>
+    <p>Enter your passphrase to unlock.</p>
+    <input id="pw" type="password" autocomplete="current-password" inputmode="text" placeholder="Passphrase">
+    <button id="unlock">Unlock</button>
+    <div class="err" id="gerr"></div>
+  </div>
+</div>
+
+<div id="app" class="hide">
+  <div class="topbar"><div class="wrap">
+    <div class="b">Circuit<span>.</span></div>
+    <div class="ctx" id="ctx"></div>
+  </div></div>
+  <main class="wrap"><div id="view" class="view"></div></main>
+  <nav class="tabs">
+    <a data-route="today"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Today</a>
+    <a data-route="schedule"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 9h16M9 3v4M15 3v4"/></svg>Schedule</a>
+    <a data-route="people"><svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M16 8.2a3 3 0 0 1 0 5.6M17 14.5c2.4.4 4 2.3 4 4.5"/></svg>People</a>
+    <a data-route="prep"><svg class="ic" viewBox="0 0 24 24"><path d="M6 8V6a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v2"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M9 12h6"/></svg>Prep</a>
+  </nav>
+</div>
+
+<div id="scrim"></div>
+<div id="sheet"><div class="grab"></div><div class="sc" id="sheetc"></div></div>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
