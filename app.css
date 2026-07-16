@@ -194,15 +194,23 @@ nav.tabs a.on{color:var(--red);}
 .card .c-open{margin-top:11px;padding:10px 12px;background:var(--wash);border-left:2px solid var(--red);font-size:12.5px;line-height:1.55;color:var(--ink);}
 .card .c-warn{margin-top:9px;font-size:11.5px;color:var(--red);font-weight:600;line-height:1.4;}
 
-/* ---------- Prep: flights, logistics, cannabis ---------- */
-.flights{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);margin-top:4px;}
-.fl{padding:15px 15px 16px;}
-.fl + .fl{border-left:1px solid var(--line);}
-.fl-k{font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--red);font-weight:700;}
-.fl-code{margin-top:7px;font-size:16px;font-weight:700;letter-spacing:-0.01em;}
-.fl-line{margin-top:6px;font-size:13px;color:var(--grey);line-height:1.5;}
-.fl-line b{color:var(--ink);font-weight:600;}
-.fl-stat{margin-top:9px;font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--red);font-weight:700;}
+/* ---------- Prep: editorial flight card (flights.html look) ---------- */
+.fl-route{font-size:clamp(40px,12vw,64px);font-weight:700;letter-spacing:-0.03em;line-height:1;margin-top:4px;}
+.fl-route .arr{color:var(--red);}
+.fl-meta{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px 20px;font-size:12.5px;color:var(--grey);}
+.fl-meta strong{color:var(--ink);font-weight:600;}
+.flightsv{display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:2px solid var(--ink);background:var(--wash);margin-top:16px;}
+.fv{padding:16px;}
+.fv + .fv{border-left:1px solid var(--line);}
+.fv-k{font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--red);font-weight:700;}
+.fv-t{margin-top:8px;font-size:18px;font-weight:700;letter-spacing:-0.01em;line-height:1.25;}
+.fv-d{margin-top:6px;font-size:13px;color:var(--grey);line-height:1.5;}
+.fl-price{margin-top:14px;font-size:28px;font-weight:700;letter-spacing:-0.02em;}
+.fl-price span{font-size:13px;font-weight:400;color:var(--grey);letter-spacing:0;}
+@media (max-width:520px){
+  .flightsv{grid-template-columns:1fr;}
+  .fv + .fv{border-left:none;border-top:1px solid var(--line);}
+}
 
 .logi{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);margin-top:4px;}
 .lo-cell{padding:15px 15px 16px;border-bottom:1px solid var(--line);}

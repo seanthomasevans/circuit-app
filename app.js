@@ -484,16 +484,24 @@ function viewPrep() {
   // packing checks now live in item_state (key 'pack:<id>') so they sync across devices.
   const checks = {}; Object.keys(state).forEach(k => { if (k.startsWith('pack:')) checks[k.slice(5)] = state[k]; });
 
-  // Flights
-  const flights = `<div class="sec"><div class="sec-label">Flights</div><h2>Both legs on Air Canada</h2>
-    <div class="flights">
-      <div class="fl"><div class="fl-k">Out</div><div class="fl-code">${esc(out.code || '')}</div>
-        <div class="fl-line">${esc(out.dep || '')}<br>Lands ${esc(out.arr || '')}${out.conf ? '<br>Conf <b>' + esc(out.conf) + '</b>' : ''}</div>
-        <div class="fl-stat">${esc(out.status || '')}</div></div>
-      <div class="fl"><div class="fl-k">Back</div><div class="fl-code">${esc(back.code || '')}</div>
-        <div class="fl-line">${esc(back.dep || '')}<br>Lands ${esc(back.arr || '')}${back.conf ? '<br>Conf <b>' + esc(back.conf) + '</b>' : ''}</div>
-        <div class="fl-stat">${esc(back.status || '')}</div></div>
-    </div></div>`;
+  // Flights: editorial route card, look restored from the flights.html decision page
+  const fRow = ((DATA.budget || {}).rows || []).find(r => r.cat === 'Flights');
+  const flights = `<div class="sec"><div class="sec-label">Flights</div>
+    <div class="fl-route">YYZ <span class="arr">→</span> LAX</div>
+    <div class="fl-meta">
+      ${out.conf ? `<span>Conf <strong>${esc(out.conf)}</strong></span>` : ''}
+      ${out.status ? `<span><strong>${esc(out.status)}</strong></span>` : ''}
+      <span>Both legs <strong>Air Canada</strong></span>
+    </div>
+    <div class="flightsv">
+      <div class="fv"><div class="fv-k">Out</div>
+        <div class="fv-t">${esc(out.code || '')}</div>
+        <div class="fv-d">${esc(out.dep || '')}<br>Lands ${esc(out.arr || '')}</div></div>
+      <div class="fv"><div class="fv-k">Back</div>
+        <div class="fv-t">${esc(back.code || '')}</div>
+        <div class="fv-d">${esc(back.dep || '')}<br>Lands ${esc(back.arr || '')}</div></div>
+    </div>
+    ${fRow ? `<div class="fl-price tnum">$${fRow.line}<span> round trip · ${esc(fRow.payer)}${fRow.note ? ' · ' + esc(fRow.note) : ''}</span></div>` : ''}</div>`;
 
   // Lodging + transport + venue + badge
   const logi = `<div class="sec"><div class="sec-label">Lodging and transport</div><h2>Getting around, staying put</h2>
