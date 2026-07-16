@@ -19,9 +19,10 @@ button{font:inherit;cursor:pointer;}
 #gate .brand{font-size:42px;font-weight:700;letter-spacing:-0.03em;}
 #gate .brand span{color:var(--red);}
 #gate p{color:var(--grey);font-size:14px;margin:8px 0 20px;}
-#gate input{width:100%;border:1px solid var(--line);border-radius:10px;padding:14px;font-size:16px;}
+#gate input{width:100%;border:1px solid var(--line);border-radius:10px;padding:14px;font-size:16px;margin-bottom:10px;}
 #gate input:focus{outline:none;border-color:var(--ink);}
-#gate button{width:100%;margin-top:10px;background:var(--ink);color:#fff;border:none;border-radius:10px;padding:14px;font-size:16px;font-weight:600;}
+#gate button{width:100%;margin-top:4px;background:var(--ink);color:#fff;border:none;border-radius:10px;padding:14px;font-size:16px;font-weight:600;}
+#gate button:disabled{opacity:.6;}
 #gate .err{color:var(--red);font-size:13px;margin-top:10px;min-height:16px;}
 
 /* app frame */
@@ -78,16 +79,29 @@ nav.tabs a.on{color:var(--red);}
 
 /* ---------- Today: "To handle" strip ---------- */
 .handle{border:1px solid var(--line);margin-bottom:26px;}
-.handle .h-head{display:flex;justify-content:space-between;align-items:baseline;padding:12px 15px 11px;border-bottom:1px solid var(--line);background:var(--wash);}
+.handle .h-head{display:flex;justify-content:space-between;align-items:center;padding:11px 15px 10px;border-bottom:1px solid var(--line);background:var(--wash);}
 .handle .h-k{font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--red);font-weight:700;}
+.handle .h-actions{display:flex;align-items:center;gap:12px;}
 .handle .h-c{font-size:11px;color:var(--faint);font-weight:600;letter-spacing:0.04em;}
-.handle .h-row{display:grid;grid-template-columns:52px 1fr;gap:12px;padding:12px 15px;border-bottom:1px solid var(--line);align-items:start;}
+.handle .h-row{display:grid;grid-template-columns:24px 1fr;gap:13px;padding:12px 15px;border-bottom:1px solid var(--line);align-items:start;}
 .handle .h-row:last-child{border-bottom:none;}
-.handle .h-pri{font-size:10px;letter-spacing:0.08em;text-transform:uppercase;font-weight:700;padding-top:2px;}
+.handle .h-empty{padding:16px 15px;font-size:13px;color:var(--faint);}
+.handle .h-check{width:24px;height:24px;border:2px solid var(--ink);border-radius:6px;background:#fff;padding:0;position:relative;flex:0 0 24px;margin-top:1px;}
+.handle .h-check.on{background:var(--red);border-color:var(--red);}
+.handle .h-check.on::after{content:"";position:absolute;left:6px;top:1px;width:6px;height:12px;border:solid #fff;border-width:0 3px 3px 0;transform:rotate(45deg);}
+.handle .h-tap{min-width:0;}
+.handle .h-title{font-size:13.5px;font-weight:500;line-height:1.4;}
+.handle .h-row.done .h-title{color:var(--faint);text-decoration:line-through;text-decoration-color:var(--line);}
+.handle .h-meta{margin-top:4px;font-size:12px;color:var(--faint);}
+.handle .h-pri{font-size:10px;letter-spacing:0.06em;text-transform:uppercase;font-weight:700;}
 .handle .h-pri.high{color:var(--red);}
 .handle .h-pri.med{color:var(--faint);}
-.handle .h-title{font-size:13.5px;font-weight:500;line-height:1.4;}
-.handle .h-meta{margin-top:3px;font-size:12px;color:var(--faint);}
+
+/* add buttons (＋) */
+.add-btn{width:30px;height:30px;border:1px solid var(--ink);border-radius:8px;background:#fff;color:var(--ink);font-size:20px;font-weight:400;line-height:1;display:inline-flex;align-items:center;justify-content:center;padding:0;flex:0 0 auto;}
+.add-btn:active{background:var(--wash);}
+.add-btn.lg{width:36px;height:36px;font-size:24px;}
+.sec-h2row{display:flex;align-items:center;justify-content:space-between;gap:12px;}
 
 /* ---------- Today: day heading + tonight ---------- */
 .day-head{margin:6px 0 4px;}
@@ -305,6 +319,28 @@ nav.tabs a.on{color:var(--red);}
 .bud-cat{display:flex;justify-content:space-between;padding:10px 2px;border-bottom:1px solid var(--line);font-size:14.5px;}
 .bud-cat span:first-child{font-weight:600;}
 .bud-row{display:flex;justify-content:space-between;gap:12px;padding:11px 2px;border-bottom:1px solid var(--line);align-items:baseline;}
+.bud-row.tap{cursor:pointer;padding-left:2px;padding-right:2px;}
+.bud-row.tap:active{background:var(--wash);}
 .br-l{font-size:14px;font-weight:600;}
 .br-m{display:block;font-size:12px;color:var(--faint);font-weight:400;margin-top:2px;}
 .br-amt{font-size:14px;font-weight:700;white-space:nowrap;}
+
+/* ---------- edit forms in the sheet ---------- */
+.ef{margin-top:14px;}
+.ef label{display:block;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:6px;}
+.ef input,.ef select,.ef textarea{width:100%;border:1px solid var(--line);border-radius:9px;padding:11px 12px;font:inherit;font-size:16px;background:#fff;color:var(--ink);}
+.ef input:focus,.ef select:focus,.ef textarea:focus{outline:none;border-color:var(--ink);}
+.ef textarea{resize:vertical;line-height:1.45;}
+.ef select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' fill='none' stroke='%23111' stroke-width='1.6'/></svg>");background-repeat:no-repeat;background-position:right 13px center;padding-right:34px;}
+.ef-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.ef-check{margin-top:16px;}
+.ef-check label{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--ink);cursor:pointer;}
+.ef-check input{width:22px;height:22px;appearance:none;-webkit-appearance:none;border:2px solid var(--ink);border-radius:6px;position:relative;flex:0 0 22px;background:#fff;}
+.ef-check input:checked{background:var(--red);border-color:var(--red);}
+.ef-check input:checked::after{content:"";position:absolute;left:5px;top:1px;width:6px;height:11px;border:solid #fff;border-width:0 3px 3px 0;transform:rotate(45deg);}
+.ef-actions{display:flex;gap:10px;margin-top:22px;}
+.ef-actions .btn{margin:0;flex:1;text-align:center;}
+.btn.danger{border-color:var(--red);color:var(--red);}
+.btn.danger:active{background:rgba(227,6,19,0.06);}
+.btn:disabled{opacity:.6;}
+#sheet h3{margin-top:6px;}

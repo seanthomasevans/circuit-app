@@ -16,9 +16,10 @@
 <div id="gate">
   <div class="box">
     <div class="brand">Circuit<span>.</span></div>
-    <p>Enter your passphrase to unlock.</p>
-    <input id="pw" type="password" autocomplete="current-password" inputmode="text" placeholder="Passphrase">
-    <button id="unlock">Unlock</button>
+    <p>Sign in to unlock and sync.</p>
+    <input id="email" type="email" autocomplete="username" inputmode="email" placeholder="Email" autocapitalize="off" spellcheck="false">
+    <input id="pw" type="password" autocomplete="current-password" inputmode="text" placeholder="Password">
+    <button id="unlock">Sign in</button>
     <div class="err" id="gerr"></div>
   </div>
 </div>
@@ -40,6 +41,9 @@
 <div id="scrim"></div>
 <div id="sheet"><div class="grab"></div><div class="sc" id="sheetc"></div></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="db.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>

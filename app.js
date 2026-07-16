@@ -1,8 +1,11 @@
 /* Circuit app. One shell, hash router, four views, one detail sheet.
-   Data arrives as window.DATA (dev, plaintext) or window.__CIPHER__ (encrypted, unlocked by passphrase). */
+   Static reference (event, objectives, dayplan, sessions, briefs, packing, logistics) arrives encrypted
+   in window.__CIPHER__, unlocked by the login password. Mutable synced entities (contacts, tasks,
+   meetings, budget_items, item_state, captures) come live from Supabase via window.DB and are merged in. */
 (() => {
 'use strict';
-let DATA = null;
+let DATA = null;      // static reference, unlocked from the cipher
+let REF = null;       // the raw decrypted reference (kept so we can re-merge on every DB change)
 const $ = s => document.querySelector(s);
 // House style: no em dashes in rendered prose. Normalize source em/en-dash separators at display time
 // (data files are source-of-truth and not edited here). Em dash between words -> comma; stray en dash between spaces -> comma.
@@ -25,6 +28,46 @@ const nowMin = () => { const n = new Date(); return n.getHours() * 60 + n.getMin
 const todayISO = () => { const n = new Date(); return n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0') + '-' + String(n.getDate()).padStart(2,'0'); };
 const shortDate = iso => { const p = iso.split('-'); return MONTHS[+p[1]-1] + ' ' + (+p[2]); };
 
+/* ---------- budget engine (JS port of circuit/models.compute_budget) ---------- */
+function computeBudget(items, currency) {
+  const rows = [], byCatM = {}, byPayerM = {};
+  let actual = 0, est = 0;
+  (items || []).forEach(it => {
+    const line = Math.round(Number(it.amount || 0) * parseInt(it.qty || 1, 10) * 100) / 100;
+    rows.push({ ...it, line });
+    byCatM[it.cat] = Math.round(((byCatM[it.cat] || 0) + line) * 100) / 100;
+    byPayerM[it.payer] = Math.round(((byPayerM[it.payer] || 0) + line) * 100) / 100;
+    if (it.actual) actual += line; else est += line;
+  });
+  const total = Math.round((actual + est) * 100) / 100;
+  const sean = byPayerM['Sean'] || 0;
+  const covered = Math.round((total - sean) * 100) / 100;
+  return {
+    currency: currency || 'CAD',
+    rows: rows.slice().sort((a, b) => b.line - a.line),
+    by_cat: Object.entries(byCatM).map(([cat, t]) => ({ cat, total: t })).sort((a, b) => b.total - a.total),
+    by_payer: Object.entries(byPayerM).map(([payer, t]) => ({ payer, total: t })).sort((a, b) => b.total - a.total),
+    total, actual: Math.round(actual * 100) / 100, estimate: Math.round(est * 100) / 100,
+    your_cost: sean, covered,
+  };
+}
+
+/* ---------- merge: static reference + mutable DB entities into one DATA the views read ---------- */
+function mergeData(db) {
+  db = db || {};
+  const d = { ...REF };
+  if (db.contacts) d.contacts = db.contacts;
+  if (db.tasks) d.tasks = db.tasks;
+  if (db.meetings) d.meetings = db.meetings;
+  if (db.budget_items) d.budget = computeBudget(db.budget_items, (REF.budget && REF.budget.currency) || 'CAD');
+  // item_state -> lookup maps the views can read (starred, packed)
+  const state = {}; (db.item_state || []).forEach(r => { state[r.key] = r.value; });
+  d._state = state;
+  d._budget_items = db.budget_items || [];
+  d.captures = db.captures || [];
+  DATA = d;
+}
+
 /* ---------- unlock ---------- */
 async function decrypt(pw) {
   const c = window.__CIPHER__;
@@ -39,22 +82,84 @@ async function decrypt(pw) {
 function b64(s) { const bin = atob(s); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
 
 async function boot() {
-  if (window.DATA) { DATA = window.DATA; $('#gate').classList.add('hide'); start(); return; }  // dev plaintext
+  // Dev plaintext shortcut (no auth, no DB): window.DATA carries everything.
+  if (window.DATA) { REF = window.DATA; mergeData(DATA_devTables(window.DATA)); $('#gate').classList.add('hide'); start(); return; }
+
   $('#gate').classList.remove('hide');
-  const tryPw = async () => {
+  const emailEl = $('#email'), pwEl = $('#pw');
+  emailEl.value = store.get('email') || '';
+
+  const signIn = async () => {
     $('#gerr').textContent = '';
+    const email = (emailEl.value || '').trim();
+    const pw = pwEl.value || '';
+    if (!email || !pw) { $('#gerr').textContent = 'Enter your email and password.'; return; }
+    $('#unlock').disabled = true; $('#unlock').textContent = 'Signing in…';
     try {
-      const saved = store.get('pw');
-      DATA = await decrypt($('#pw').value || saved || '');
-      store.set('pw', $('#pw').value || saved);
-      $('#gate').classList.add('hide'); start();
-    } catch { $('#gerr').textContent = 'Wrong passphrase.'; store.set('pw', null); }
+      // (a) authenticate Supabase, (b) decrypt the static bundle with the SAME password.
+      const ref = await decrypt(pw);            // throws on wrong password
+      const { error } = await DB.auth.signIn(email, pw);
+      if (error) throw new Error(error.message || 'auth');
+      REF = ref;
+      store.set('email', email);
+      await enter();
+    } catch (e) {
+      $('#gerr').textContent = /auth|invalid|credential/i.test(String(e && e.message))
+        ? 'Wrong email or password.' : 'Wrong password.';
+    } finally {
+      $('#unlock').disabled = false; $('#unlock').textContent = 'Sign in';
+    }
   };
-  const saved = store.get('pw');
-  if (saved) { $('#pw').value = saved; tryPw(); }
-  $('#unlock').onclick = tryPw;
-  $('#pw').onkeydown = e => { if (e.key === 'Enter') tryPw(); };
-  $('#pw').focus();
+
+  $('#unlock').onclick = signIn;
+  pwEl.onkeydown = e => { if (e.key === 'Enter') signIn(); };
+  emailEl.onkeydown = e => { if (e.key === 'Enter') pwEl.focus(); };
+
+  // Auto-resume: a persisted Supabase session means we only need the password to decrypt.
+  const sess = DB.ready ? await DB.auth.session() : null;
+  if (sess && store.get('email')) {
+    // Session is live but the reference cipher still needs the password each cold start.
+    emailEl.value = store.get('email'); pwEl.focus();
+  } else {
+    (emailEl.value ? pwEl : emailEl).focus();
+  }
+}
+
+// In dev mode window.DATA already carries the mutable arrays; adapt them into the db-shaped object.
+function DATA_devTables(d) {
+  return {
+    contacts: d.contacts, tasks: d.tasks, meetings: d.meetings,
+    budget_items: (d._budget_items || (d._budget_raw && d._budget_raw.items) || []),
+    item_state: [], captures: d.captures || [],
+  };
+}
+
+/* ---------- enter: load DB, merge, subscribe, start ---------- */
+let reloadPending = false;
+async function reloadFromDB() {
+  const db = DB.ready ? await DB.loadAll() : {};
+  mergeData(db);
+}
+async function enter() {
+  if (DB.ready) {
+    try { await reloadFromDB(); }
+    catch { mergeData(dbFromCache()); }   // offline: hydrate from cache
+    DB.subscribe(() => {
+      if (reloadPending) return;
+      reloadPending = true;
+      reloadFromDB().then(() => { reloadPending = false; rerender(); }).catch(() => { reloadPending = false; });
+    });
+    DB.flush();
+  } else {
+    mergeData({});
+  }
+  $('#gate').classList.add('hide');
+  start();
+}
+function dbFromCache() {
+  const o = {};
+  (DB.TABLES || []).forEach(t => { o[t] = DB.cacheGet(t); });
+  return o;
 }
 
 /* ---------- start ---------- */
@@ -83,7 +188,50 @@ function route() {
   if (id) { tab === 'people' ? sheetPerson(id) : sheetSession(id); } else closeSheet();
   window.scrollTo(0, 0);
 }
+// Re-render the active view in place after a DB change, without scroll-jumping or forcing a route.
+function rerender() {
+  const seg = (location.hash.replace('#/', '') + '/').split('/')[0];
+  const tab = ['today', 'schedule', 'people', 'prep'].includes(seg) ? seg : 'today';
+  const y = window.scrollY;
+  ({ today: viewToday, schedule: viewSchedule, people: viewPeople, prep: viewPrep }[tab])();
+  // if a sheet is open, refresh its contents from the new data
+  if (sheetState.kind === 'person') sheetPerson(sheetState.id, true);
+  else if (sheetState.kind === 'task') sheetTask(sheetState.id, true);
+  else if (sheetState.kind === 'budget') sheetBudget(sheetState.id, true);
+  window.scrollTo(0, y);
+}
 function render(h) { $('#view').innerHTML = h; }
+
+/* ---------- DB write helpers (optimistic: write, re-merge from cache, re-render) ---------- */
+async function saveRow(table, row) {
+  await DB.upsert(table, row);
+  await syncAfterWrite();
+}
+async function deleteRow(table, id) {
+  await DB.remove(table, id);
+  await syncAfterWrite();
+}
+async function saveState(key, value) {
+  // item_state PK is (owner, key); db.js caches by .id, so mirror key into id for the local cache.
+  await DB.upsert('item_state', { id: key, key, value });
+  await syncAfterWrite();
+}
+// After an optimistic write, rebuild DATA from the (now-updated) local cache and re-render immediately.
+// The realtime subscription will reconcile with the server shortly after.
+async function syncAfterWrite() {
+  mergeData(dbFromCache());
+  rerender();
+}
+function uuid() {
+  return (crypto.randomUUID && crypto.randomUUID()) ||
+    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+}
+function slug(s) {
+  return (String(s || 'contact').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'contact')
+    + '-' + Math.random().toString(36).slice(2, 6);
+}
 
 /* ---------- masthead (shared) ---------- */
 function masthead() {
@@ -114,6 +262,23 @@ function tickCountdown() {
 let curDay = null;
 const KIND_LABEL = { session:'Session', travel:'Travel', meal:'Meal', coffee:'Coffee', network:'Network', flex:'Flex', evening:'Evening', admin:'Admin', dressup:'Dress up' };
 
+// A checkable, tappable task row shared by Today and Prep.
+function taskRowHtml(t) {
+  const done = t.status === 'done';
+  return `<div class="h-row${done ? ' done' : ''}" data-task="${esc(t.id)}">
+    <button class="h-check${done ? ' on' : ''}" data-tcheck="${esc(t.id)}" aria-label="toggle done"></button>
+    <div class="h-tap" data-tedit="${esc(t.id)}">
+      <div class="h-title">${esc(t.title)}</div>
+      <div class="h-meta"><span class="h-pri ${t.priority === 'high' ? 'high' : 'med'}">${esc(t.priority || '')}</span>${t.kind ? ' · ' + esc(t.kind) : ''}${t.due ? ' · due ' + esc(t.due) : ''}</div>
+    </div></div>`;
+}
+// Wire the shared task-row interactions within a container that has just been rendered.
+function bindTaskRows() {
+  document.querySelectorAll('[data-tcheck]').forEach(b => b.onclick = e => { e.stopPropagation(); toggleTask(b.dataset.tcheck); });
+  document.querySelectorAll('[data-tedit]').forEach(b => b.onclick = () => sheetTask(b.dataset.tedit));
+  document.querySelectorAll('[data-add="task"]').forEach(b => b.onclick = () => sheetTask('new'));
+}
+
 function viewToday() {
   const days = DATA.dayplan.days, tISO = todayISO();
   if (curDay == null) { const i = days.findIndex(d => d.date >= tISO); curDay = i < 0 ? 0 : i; }
@@ -123,14 +288,13 @@ function viewToday() {
   // Day chips
   const sel = days.map((x, i) => `<button class="chip ${i === curDay ? 'on' : ''}" data-day="${i}">${esc(x.label.slice(0,3))}<span style="opacity:.6;margin-left:5px;font-weight:400">${shortDate(x.date)}</span></button>`).join('');
 
-  // To-handle strip: open tasks, high first
-  const open = (DATA.tasks || []).filter(t => t.status === 'open')
+  // To-handle strip: open + doing tasks, high first; each is checkable and tappable.
+  const open = (DATA.tasks || []).filter(t => t.status !== 'done')
     .sort((a, b) => (a.priority === 'high' ? 0 : 1) - (b.priority === 'high' ? 0 : 1) || (a.due || '').localeCompare(b.due || ''));
-  const handle = open.length ? `<div class="handle">
-    <div class="h-head"><span class="h-k">To handle</span><span class="h-c">${open.length} open</span></div>
-    ${open.map(t => `<div class="h-row"><div class="h-pri ${t.priority === 'high' ? 'high' : 'med'}">${esc(t.priority || '')}</div>
-      <div><div class="h-title">${esc(t.title)}</div><div class="h-meta">${esc(t.kind || '')}${t.due ? ' · due ' + esc(t.due) : ''}</div></div></div>`).join('')}
-  </div>` : '';
+  const handle = `<div class="handle">
+    <div class="h-head"><span class="h-k">To handle</span><span class="h-actions"><span class="h-c">${open.length} open</span><button class="add-btn" data-add="task" aria-label="Add task">+</button></span></div>
+    ${open.length ? open.map(t => taskRowHtml(t)).join('') : '<div class="h-empty">Nothing open. Tap + to add.</div>'}
+  </div>`;
 
   // NOW/NEXT
   let nowIdx = -1, nextIdx = -1;
@@ -193,6 +357,7 @@ function viewToday() {
      ${marqueeHtml}`);
 
   tickCountdown();
+  bindTaskRows();
   document.querySelectorAll('[data-day]').forEach(b => b.onclick = () => { curDay = +b.dataset.day; viewToday(); window.scrollTo(0, 0); });
 }
 
@@ -201,7 +366,8 @@ let schFilter = { day: 'all', obj: 'all', star: false };
 function viewSchedule() {
   const S = DATA.sessions, objs = DATA.objectives || [];
   const objMap = {}; objs.forEach(o => objMap[o.id] = o);
-  const starred = store.get('starred') || {};
+  const state = DATA._state || {};
+  const starred = {}; Object.keys(state).forEach(k => { if (k.startsWith('star:') && state[k]) starred[k.slice(5)] = true; });
 
   // Experience Hall + Evenings (marquee)
   const marq = S.filter(s => s.marquee);
@@ -284,14 +450,16 @@ function viewPeople() {
   }).join('') || '<div class="empty">No contacts here.</div>';
 
   render(masthead() +
-    `<div class="sec"><div class="sec-label">People to corner</div>
-      <h2>Networking targets</h2><div class="sec-sub">${list.length} targets, openers loaded</div>
+    `<div class="sec"><div class="sec-h2row"><h2>Networking targets</h2><button class="add-btn lg" data-add="contact" aria-label="Add contact">+</button></div>
+      <div class="sec-label" style="margin:8px 0 0">People to corner</div>
+      <div class="sec-sub">${list.length} targets, openers loaded</div>
       <div class="chips" style="margin-top:14px">${objChips}</div>
       <div class="people">${cards}</div></div>`);
 
   tickCountdown();
   document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { ppFilter.obj = ppFilter.obj === b.dataset.v ? 'all' : b.dataset.v; viewPeople(); });
-  document.querySelectorAll('[data-p]').forEach(c => c.onclick = () => { location.hash = '#/people/' + c.dataset.p; });
+  document.querySelectorAll('[data-p]').forEach(c => c.onclick = () => sheetPerson(c.dataset.p));
+  document.querySelectorAll('[data-add="contact"]').forEach(b => b.onclick = () => sheetPerson('new'));
 }
 
 /* ---------- Prep ---------- */
@@ -299,7 +467,9 @@ function viewPrep() {
   const L = DATA.logistics || {}, P = DATA.packing || { sections: [] }, briefs = DATA.briefs || [];
   const f = L.flights || {}, out = f.out || {}, back = f.back || {};
   const t = L.transport || {}, air = t.uber_airport || {}, lg = L.lodging || {}, ven = L.venue || {}, bg = L.badge || {}, cn = L.cannabis || {};
-  const checks = store.get('pack') || {};
+  const state = DATA._state || {};
+  // packing checks now live in item_state (key 'pack:<id>') so they sync across devices.
+  const checks = {}; Object.keys(state).forEach(k => { if (k.startsWith('pack:')) checks[k.slice(5)] = state[k]; });
 
   // Flights
   const flights = `<div class="sec"><div class="sec-label">Flights</div><h2>Both legs on Air Canada</h2>
@@ -367,27 +537,30 @@ function viewPrep() {
     ${briefs.map((b, i) => `<details class="brief"${i === 0 ? ' open' : ''}><summary><span class="bs-t">${esc(b.title)}</span><span class="bs-i">+</span></summary>
       <div class="bs-body"><div class="md">${renderMd(b.md)}</div></div></details>`).join('')}</div>` : '';
 
-  // Open tasks
-  const open = (DATA.tasks || []).filter(t => t.status === 'open')
+  // Tasks (checkable + editable + add)
+  const open = (DATA.tasks || []).filter(t => t.status !== 'done')
     .sort((a, b) => (a.priority === 'high' ? 0 : 1) - (b.priority === 'high' ? 0 : 1) || (a.due || '').localeCompare(b.due || ''));
-  const tasksHtml = open.length ? `<div class="sec"><div class="sec-label">Open tasks</div><h2>Before the floor opens</h2>
-    <div class="handle" style="margin-top:8px">
-      ${open.map(t => `<div class="h-row"><div class="h-pri ${t.priority === 'high' ? 'high' : 'med'}">${esc(t.priority || '')}</div>
-        <div><div class="h-title">${esc(t.title)}</div><div class="h-meta">${esc(t.kind || '')}${t.due ? ' · due ' + esc(t.due) : ''}</div></div></div>`).join('')}
-    </div></div>` : '';
+  const doneTasks = (DATA.tasks || []).filter(t => t.status === 'done');
+  const tasksHtml = `<div class="sec"><div class="sec-h2row"><h2>Before the floor opens</h2><button class="add-btn lg" data-add="task" aria-label="Add task">+</button></div>
+    <div class="sec-label" style="margin:8px 0 0">Tasks</div>
+    <div class="handle" style="margin-top:10px">
+      ${open.length ? open.map(t => taskRowHtml(t)).join('') : '<div class="h-empty">Nothing open. Tap + to add.</div>'}
+      ${doneTasks.map(t => taskRowHtml(t)).join('')}
+    </div></div>`;
 
-  // Budget (computed by the build)
+  // Budget (recomputed live in JS from the current budget_items rows)
   const B = DATA.budget || {};
-  const budgetHtml = B.total ? `<div class="sec"><div class="sec-label">Budget</div><h2>What the trip costs</h2>
+  const budgetHtml = `<div class="sec"><div class="sec-h2row"><h2>What the trip costs</h2><button class="add-btn lg" data-add="budget" aria-label="Add spend">+</button></div>
+    <div class="sec-label" style="margin:8px 0 0">Budget</div>
     <div class="bud-top">
-      <div class="bud-big"><div class="bud-k">Your out of pocket</div><div class="bud-v tnum">$${B.your_cost}<span> ${esc(B.currency)}</span></div></div>
-      <div class="bud-cov">Revolver covers <b class="tnum">$${B.covered}</b> (the flight). Total trip <b class="tnum">$${B.total}</b>.</div>
+      <div class="bud-big"><div class="bud-k">Your out of pocket</div><div class="bud-v tnum">$${B.your_cost || 0}<span> ${esc(B.currency || 'CAD')}</span></div></div>
+      <div class="bud-cov">Covered <b class="tnum">$${B.covered || 0}</b>. Total trip <b class="tnum">$${B.total || 0}</b>.</div>
     </div>
     <div class="bud-cats">${(B.by_cat || []).map(c => `<div class="bud-cat"><span>${esc(c.cat)}</span><span class="tnum">$${c.total}</span></div>`).join('')}</div>
-    <details class="brief"><summary><span class="bs-t">Line items</span><span class="bs-i">+</span></summary><div class="bs-body">
-      ${(B.rows || []).map(r => `<div class="bud-row"><div class="br-l">${esc(r.label)}<span class="br-m">${esc(r.cat)} · ${esc(r.payer)}${r.qty > 1 ? ' · x' + r.qty : ''} · ${r.actual ? 'paid' : 'est'}${r.note ? ' · ' + esc(r.note) : ''}</span></div><div class="br-amt tnum">$${r.line}</div></div>`).join('')}
+    <details class="brief" open><summary><span class="bs-t">Line items</span><span class="bs-i">+</span></summary><div class="bs-body">
+      ${(B.rows || []).map(r => `<div class="bud-row tap" data-bud="${esc(r.id)}"><div class="br-l">${esc(r.label)}<span class="br-m">${esc(r.cat)} · ${esc(r.payer)}${r.qty > 1 ? ' · x' + r.qty : ''} · ${r.actual ? 'paid' : 'est'}${r.note ? ' · ' + esc(r.note) : ''}</span></div><div class="br-amt tnum">$${r.line}</div></div>`).join('')}
     </div></details>
-    <div class="sec-sub" style="margin-top:10px">Actual = booked and paid. Everything else is a grounded estimate. Edit data/budget.json as you spend and it recomputes.</div></div>` : '';
+    <div class="sec-sub" style="margin-top:10px">Tap any line to edit. Actual = booked and paid. Everything else is a grounded estimate. Totals recompute live.</div></div>`;
 
   // Venue map (grounded, real links)
   const SIGMAP = 'https://maps.goeshow.com/acm/siggraph/2026/floor_map';
@@ -407,24 +580,30 @@ function viewPrep() {
   render(masthead() + budgetHtml + flights + logi + venueHtml + cann + packing + briefsHtml + tasksHtml);
 
   tickCountdown();
+  bindTaskRows();
 
-  // Packing interactions
+  // Budget line taps + add
+  document.querySelectorAll('[data-bud]').forEach(r => r.onclick = () => sheetBudget(r.dataset.bud));
+  document.querySelectorAll('[data-add="budget"]').forEach(b => b.onclick = () => sheetBudget('new'));
+
+  // Packing interactions -> item_state (synced). Optimistic: flip the bar immediately, persist in the background.
+  const localChecks = { ...checks };
   const recount = () => {
-    const c = store.get('pack') || {};
-    const done = packIds.filter(id => c[id]).length;
+    const done = packIds.filter(id => localChecks[id]).length;
     $('#pp-fill').style.width = (totalN ? done / totalN * 100 : 0) + '%';
     $('#pp-count').textContent = done + ' / ' + totalN + ' packed';
     $('#pp-done').style.display = (done === totalN && totalN) ? '' : 'none';
   };
   document.querySelectorAll('[data-pk]').forEach(cb => cb.onchange = () => {
-    const c = store.get('pack') || {}; c[cb.dataset.pk] = cb.checked; store.set('pack', c);
-    cb.closest('label'); recount();
-  });
-  $('#pp-reset').onclick = () => {
-    if (!confirm('Clear all ticks?')) return;
-    store.set('pack', {});
-    document.querySelectorAll('[data-pk]').forEach(cb => cb.checked = false);
+    localChecks[cb.dataset.pk] = cb.checked;
     recount();
+    saveState('pack:' + cb.dataset.pk, cb.checked);
+  });
+  $('#pp-reset').onclick = async () => {
+    if (!confirm('Clear all ticks?')) return;
+    for (const id of packIds) { if (localChecks[id]) { localChecks[id] = false; await DB.upsert('item_state', { id: 'pack:' + id, key: 'pack:' + id, value: false }); } }
+    document.querySelectorAll('[data-pk]').forEach(cb => cb.checked = false);
+    await syncAfterWrite();
   };
 }
 
@@ -436,8 +615,8 @@ function renderMd(md) {
   const flushList = () => { if (inList) { html += '</ul>'; inList = false; } };
   const inline = s => esc(s)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, txt, url) => `<a href="${esc(url)}" target="_blank" rel="noopener">${txt}</a>`)
-    .replace(/(^|[\s(])((?:https?:\/\/)[^\s)]+)/g, (m, pre, url) => `${pre}<a href="${esc(url)}" target="_blank" rel="noopener">${url}</a>`);
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, txt, url) => `<a href="${url}" target="_blank" rel="noopener">${txt}</a>`)
+    .replace(/(^|[\s(])((?:https?:\/\/)[^\s)]+)/g, (m, pre, url) => `${pre}<a href="${url}" target="_blank" rel="noopener">${url}</a>`);
   for (let raw of lines) {
     const line = raw.replace(/\s+$/, '');
     if (/^###\s+/.test(line)) { flushPara(); flushList(); html += '<h3>' + inline(line.replace(/^###\s+/, '')) + '</h3>'; }
@@ -452,12 +631,20 @@ function renderMd(md) {
 }
 
 /* ---------- sheet (the one modal) ---------- */
-function openSheet(h) { $('#sheetc').innerHTML = h; $('#scrim').classList.add('on'); $('#sheet').classList.add('on'); }
-function closeSheet() { $('#scrim').classList.remove('on'); $('#sheet').classList.remove('on'); }
-function sheetSession(id) {
+let sheetState = { kind: null, id: null };
+function openSheet(h, keepScroll) {
+  const sc = $('#sheetc');
+  const prev = keepScroll ? sc.scrollTop : 0;
+  sc.innerHTML = h; $('#scrim').classList.add('on'); $('#sheet').classList.add('on');
+  if (keepScroll) sc.scrollTop = prev;
+}
+function closeSheet() { sheetState = { kind: null, id: null }; $('#scrim').classList.remove('on'); $('#sheet').classList.remove('on'); }
+function isStarred(id) { return !!(DATA._state && DATA._state['star:' + id]); }
+function sheetSession(id, keep) {
   const s = DATA.sessions.find(x => x.id === id); if (!s) return;
+  sheetState = { kind: 'session', id };
   const objs = DATA.objectives || [], objMap = {}; objs.forEach(o => objMap[o.id] = o);
-  const starred = store.get('starred') || {};
+  const starred = isStarred(id);
   const chips = (s.objectives || []).map(oid => { const o = objMap[oid]; return o ? `<span class="sh-chip">${esc(o.short)}</span>` : ''; }).join('');
   openSheet(`<div class="sh-kicker">${esc(s.type || 'Session')}</div>
     <h3>${esc(s.title)}</h3>
@@ -466,21 +653,155 @@ function sheetSession(id) {
     ${s.speakers ? `<div class="lbl">Speakers</div><div class="val">${esc(s.speakers)}</div>` : ''}
     ${s.relevance ? `<div class="lbl">Why this one</div><div class="val">${esc(s.relevance)}</div>` : ''}
     ${s.tier ? `<div class="lbl">Badge</div><div class="val">${esc(s.tier)}</div>` : ''}
-    <div><button class="btn primary" id="star">${starred[id] ? '★ Starred' : '☆ Star this'}</button>
-    ${s.url ? `<a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">Program page</a>` : ''}</div>`);
-  $('#star').onclick = () => { const st = store.get('starred') || {}; st[id] = !st[id]; store.set('starred', st); sheetSession(id); };
+    <div><button class="btn primary" id="star">${starred ? '★ Starred' : '☆ Star this'}</button>
+    ${s.url ? `<a class="btn" href="${esc(s.url)}" target="_blank" rel="noopener">Program page</a>` : ''}</div>`, keep);
+  $('#star').onclick = () => saveState('star:' + id, !isStarred(id));
 }
-function sheetPerson(id) {
-  const c = DATA.contacts.find(x => x.id === id); if (!c) return;
+
+/* ---------- People: editable contact sheet + add ---------- */
+const CONTACT_STATUS = ['target', 'requested', 'met', 'followup'];
+function sheetPerson(id, keep) {
+  const isNew = id === 'new';
+  const c = isNew ? { id: '', name: '', role: '', company: '', status: 'target', opener: '', notes: '', objectives: [], hook_confirmed: false }
+                  : (DATA.contacts || []).find(x => x.id === id);
+  if (!c) return;
+  sheetState = { kind: 'person', id };
   const objs = DATA.objectives || [], objMap = {}; objs.forEach(o => objMap[o.id] = o);
   const chips = (c.objectives || []).map(oid => { const o = objMap[oid]; return o ? `<span class="sh-chip">${esc(o.short)}</span>` : ''; }).join('');
-  openSheet(`<div class="sh-kicker">${c.hook_confirmed ? 'Hook confirmed' : 'Target'}</div>
-    <h3>${esc(c.name)}</h3>
-    <div class="meta"><b>${esc(c.role || '')}</b>${c.company ? ' @ ' + esc(c.company) : ''}</div>
-    ${chips ? `<div class="sh-chips">${chips}</div>` : ''}
+  const opts = CONTACT_STATUS.map(s => `<option value="${s}" ${c.status === s ? 'selected' : ''}>${s}</option>`).join('');
+  openSheet(`<div class="sh-kicker">${isNew ? 'New contact' : (c.hook_confirmed ? 'Hook confirmed' : 'Target')}</div>
+    <div class="ef"><label>Name</label><input id="f-name" type="text" value="${esc(c.name)}" placeholder="Full name"></div>
+    <div class="ef-row">
+      <div class="ef"><label>Role</label><input id="f-role" type="text" value="${esc(c.role || '')}" placeholder="Role"></div>
+      <div class="ef"><label>Company</label><input id="f-company" type="text" value="${esc(c.company || '')}" placeholder="Company"></div>
+    </div>
+    <div class="ef"><label>Status</label><select id="f-status">${opts}</select></div>
+    ${chips ? `<div class="lbl">Objectives</div><div class="sh-chips">${chips}</div>` : ''}
     ${c.source ? `<div class="lbl">Where to find</div><div class="val">${esc(c.source)}</div>` : ''}
-    ${c.opener ? `<div class="lbl">Opener</div><div class="quote">${esc(c.opener)}</div>` : ''}
-    ${c.hook_confirmed === false ? '<div class="warn">Hook unconfirmed. Verify before leading with it.</div>' : ''}`);
+    <div class="ef"><label>Opener</label><textarea id="f-opener" rows="4" placeholder="Your opening line">${esc(c.opener || '')}</textarea></div>
+    <div class="ef"><label>Notes</label><textarea id="f-notes" rows="3" placeholder="Notes">${esc(c.notes || '')}</textarea></div>
+    <div class="ef-check"><label><input type="checkbox" id="f-hook" ${c.hook_confirmed ? 'checked' : ''}> Hook confirmed</label></div>
+    <div class="ef-actions">
+      <button class="btn primary" id="c-save">Save</button>
+      ${isNew ? '' : '<button class="btn danger" id="c-del">Delete</button>'}
+    </div>`, keep);
+  $('#c-save').onclick = async () => {
+    const row = {
+      id: isNew ? slug($('#f-name').value) : c.id,
+      name: $('#f-name').value.trim(),
+      role: $('#f-role').value.trim(),
+      company: $('#f-company').value.trim(),
+      status: $('#f-status').value,
+      opener: $('#f-opener').value.trim(),
+      notes: $('#f-notes').value.trim(),
+      hook_confirmed: $('#f-hook').checked,
+      objectives: c.objectives || [],
+      source: c.source || null, tags: c.tags || [],
+    };
+    if (!row.name) { $('#c-save').textContent = 'Name required'; return; }
+    $('#c-save').disabled = true; $('#c-save').textContent = 'Saving…';
+    sheetState = { kind: 'person', id: row.id };
+    await saveRow('contacts', row);
+    closeSheet();
+  };
+  const del = $('#c-del');
+  if (del) del.onclick = async () => { if (!confirm('Delete this contact?')) return; await deleteRow('contacts', c.id); closeSheet(); };
+}
+
+/* ---------- Tasks: editable task sheet + add ---------- */
+const TASK_PRI = ['high', 'med'];
+const TASK_STATUS = ['open', 'doing', 'done'];
+function sheetTask(id, keep) {
+  const isNew = id === 'new';
+  const t = isNew ? { id: '', title: '', kind: '', due: '', status: 'open', priority: 'med' }
+                  : (DATA.tasks || []).find(x => x.id === id);
+  if (!t) return;
+  sheetState = { kind: 'task', id };
+  const priOpts = TASK_PRI.map(p => `<option value="${p}" ${t.priority === p ? 'selected' : ''}>${p}</option>`).join('');
+  const stOpts = TASK_STATUS.map(s => `<option value="${s}" ${t.status === s ? 'selected' : ''}>${s}</option>`).join('');
+  openSheet(`<div class="sh-kicker">${isNew ? 'New task' : 'Task'}</div>
+    <div class="ef"><label>Title</label><textarea id="t-title" rows="2" placeholder="What needs doing">${esc(t.title)}</textarea></div>
+    <div class="ef-row">
+      <div class="ef"><label>Priority</label><select id="t-pri">${priOpts}</select></div>
+      <div class="ef"><label>Status</label><select id="t-status">${stOpts}</select></div>
+    </div>
+    <div class="ef-row">
+      <div class="ef"><label>Kind</label><input id="t-kind" type="text" value="${esc(t.kind || '')}" placeholder="admin, logistics…"></div>
+      <div class="ef"><label>Due</label><input id="t-due" type="date" value="${esc(t.due || '')}"></div>
+    </div>
+    <div class="ef-actions">
+      <button class="btn primary" id="t-save">Save</button>
+      ${isNew ? '' : '<button class="btn danger" id="t-del">Delete</button>'}
+    </div>`, keep);
+  $('#t-save').onclick = async () => {
+    const row = {
+      id: isNew ? 't-' + slug($('#t-title').value).slice(0, 20) : t.id,
+      title: $('#t-title').value.trim(),
+      kind: $('#t-kind').value.trim(),
+      due: $('#t-due').value || null,
+      status: $('#t-status').value,
+      priority: $('#t-pri').value,
+    };
+    if (!row.title) { $('#t-save').textContent = 'Title required'; return; }
+    $('#t-save').disabled = true; $('#t-save').textContent = 'Saving…';
+    sheetState = { kind: 'task', id: row.id };
+    await saveRow('tasks', row);
+    closeSheet();
+  };
+  const del = $('#t-del');
+  if (del) del.onclick = async () => { if (!confirm('Delete this task?')) return; await deleteRow('tasks', t.id); closeSheet(); };
+}
+async function toggleTask(id) {
+  const t = (DATA.tasks || []).find(x => x.id === id); if (!t) return;
+  const status = t.status === 'done' ? 'open' : 'done';
+  await saveRow('tasks', { id: t.id, title: t.title, kind: t.kind, due: t.due, status, priority: t.priority });
+}
+
+/* ---------- Prep: editable budget line sheet + add spend ---------- */
+const PAYERS = ['Sean', 'Revolver', 'Dark Half'];
+function sheetBudget(id, keep) {
+  const isNew = id === 'new';
+  const items = DATA._budget_items || [];
+  const b = isNew ? { id: '', cat: '', label: '', amount: 0, qty: 1, payer: 'Sean', actual: false, note: '' }
+                  : items.find(x => x.id === id);
+  if (!b) return;
+  sheetState = { kind: 'budget', id };
+  const payerOpts = PAYERS.map(p => `<option value="${p}" ${b.payer === p ? 'selected' : ''}>${p}</option>`).join('');
+  openSheet(`<div class="sh-kicker">${isNew ? 'New spend' : 'Budget line'}</div>
+    <div class="ef"><label>Label</label><input id="b-label" type="text" value="${esc(b.label || '')}" placeholder="What is this"></div>
+    <div class="ef-row">
+      <div class="ef"><label>Category</label><input id="b-cat" type="text" value="${esc(b.cat || '')}" placeholder="Food, Transport…"></div>
+      <div class="ef"><label>Payer</label><select id="b-payer">${payerOpts}</select></div>
+    </div>
+    <div class="ef-row">
+      <div class="ef"><label>Amount</label><input id="b-amount" type="number" inputmode="decimal" step="0.01" value="${esc(b.amount)}"></div>
+      <div class="ef"><label>Qty</label><input id="b-qty" type="number" inputmode="numeric" step="1" min="1" value="${esc(b.qty || 1)}"></div>
+    </div>
+    <div class="ef"><label>Note</label><input id="b-note" type="text" value="${esc(b.note || '')}" placeholder="Optional"></div>
+    <div class="ef-check"><label><input type="checkbox" id="b-actual" ${b.actual ? 'checked' : ''}> Paid (actual, not estimate)</label></div>
+    <div class="ef-actions">
+      <button class="btn primary" id="b-save">Save</button>
+      ${isNew ? '' : '<button class="btn danger" id="b-del">Delete</button>'}
+    </div>`, keep);
+  $('#b-save').onclick = async () => {
+    const row = {
+      id: isNew ? uuid() : b.id,
+      cat: $('#b-cat').value.trim() || 'Misc',
+      label: $('#b-label').value.trim(),
+      amount: Number($('#b-amount').value || 0),
+      qty: parseInt($('#b-qty').value || '1', 10) || 1,
+      payer: $('#b-payer').value,
+      actual: $('#b-actual').checked,
+      note: $('#b-note').value.trim() || null,
+    };
+    if (!row.label) { $('#b-save').textContent = 'Label required'; return; }
+    $('#b-save').disabled = true; $('#b-save').textContent = 'Saving…';
+    sheetState = { kind: 'budget', id: row.id };
+    await saveRow('budget_items', row);
+    closeSheet();
+  };
+  const del = $('#b-del');
+  if (del) del.onclick = async () => { if (!confirm('Delete this line?')) return; await deleteRow('budget_items', b.id); closeSheet(); };
 }
 
 boot();
