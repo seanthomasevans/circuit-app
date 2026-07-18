@@ -22,6 +22,25 @@ const EXTERNAL=/LAX|Blvd|Ave\b|\bDr\b|\bSt\b|Station|Broadway|Grand\b|Figueroa|S
 function placeHref(w){ if(!w) return SIG_MAP; return EXTERNAL.test(w)?gmap(w):SIG_MAP; }
 function placeLink(w,cls){ if(!w) return ''; return `<a class="${(cls||'')+' maplink'}" href="${placeHref(w)}" target="_blank" rel="noopener">${esc(w)}</a>`; }
 
+// LACC walk-time model: classify a room into a building zone, estimate minutes to walk between two.
+function roomZone(w){
+  const s=(w||'').toLowerCase();
+  if(/west hall|exhibit|\bfloor\b|appy/.test(s)) return 'west';
+  if(/hall k|hall j|hall h|south hall(?! steps)/.test(s)) return 'southk';
+  if(/concourse|immersive|art gallery|emerging|south hall steps/.test(s)) return 'concourse';
+  if(/petree/.test(s)) return 'petree';
+  if(/\b5\d\d|502|511|515|518/.test(s)) return 'rooms5';
+  if(/\b4\d\d|403|406|408|411/.test(s)) return 'rooms4';
+  return '';
+}
+const ZONE_WALK={
+  'west-southk':9,'west-concourse':5,'west-petree':8,'west-rooms4':9,'west-rooms5':9,
+  'southk-concourse':5,'southk-petree':7,'southk-rooms4':8,'southk-rooms5':8,
+  'concourse-petree':3,'concourse-rooms4':6,'concourse-rooms5':6,
+  'petree-rooms4':5,'petree-rooms5':5,'rooms4-rooms5':4,
+};
+function walkMin(a,b){ if(!a||!b) return 0; if(a===b) return 3; return ZONE_WALK[a+'-'+b]||ZONE_WALK[b+'-'+a]||6; }
+
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const toMin = t => { if (!t) return null; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 const nowMin = () => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); };
@@ -350,7 +369,8 @@ function viewToday() {
     nowbar = `<div class="nowbar">${lead} ${esc(tm)}${esc(r.t)}${r.w ? ' · ' + esc(r.w) : ''}</div>`;
   }
 
-  // Timeline
+  // Timeline: walk-time between rooms, tinted primary pick, secondaries listed below it.
+  let prevRoom = null, prevZone = null;
   const blocks = d.blocks.map((b, i) => {
     const k = b.k || 'session';
     const bkey = 'block:' + d.date + ':' + i;
@@ -361,19 +381,31 @@ function viewToday() {
     if (k === 'flex') extra += ' flex';
     if (k === 'dressup') extra += ' dressup';
     if (isCantMiss(b.t)) extra += ' cant-miss';
+    const hasAlts = Array.isArray(b.alts) && b.alts.length;
+    if (hasAlts) extra += ' has-alts';
+    // walk time from the previous room-bearing block
+    let trans = '';
+    const zone = roomZone(b.w);
+    if (b.s && b.w && prevRoom && b.w !== prevRoom) {
+      const mins = walkMin(prevZone, zone);
+      if (mins >= 4) trans = `<div class="transit"><span class="tr-arrow">↳</span><span class="tr-min">~${mins} min walk</span><span class="tr-a">${esc(prevRoom)} → ${esc(b.w)}</span></div>`;
+    }
+    if (b.s && b.w) { prevRoom = b.w; prevZone = zone; }
     const timeCol = !b.s
       ? '<div class="b-time floating">Floating</div>'
       : `<div class="b-time tnum">${esc(b.s)}${b.e ? '<span class="b-end">' + esc(b.e) + '</span>' : ''}</div>`;
     let body = '<div class="b-body">';
-    body += `<div class="b-top"><span class="kchip ${k}">${esc(KIND_LABEL[k] || k)}</span><button class="b-check${bdone ? ' on' : ''}" data-bcheck="${esc(bkey)}" aria-label="mark done"></button></div>`;
+    body += `<div class="b-top"><span class="kchip ${k}">${esc(KIND_LABEL[k] || k)}</span>${hasAlts ? '<span class="pick-tag">Pick</span>' : ''}<button class="b-check${bdone ? ' on' : ''}" data-bcheck="${esc(bkey)}" aria-label="mark done"></button></div>`;
     body += `<div class="b-title">${isCantMiss(b.t) ? '<span class="cm-star">★</span> ' : ''}${esc(b.t)}</div>`;
     if (b.w) body += `<div class="b-where">${placeLink(b.w)}</div>`;
     if (b.who) body += `<div class="b-who"><span class="who-lead">Catch</span>${esc(b.who)}</div>`;
     if (k === 'flex') body += '<span class="flex-flag">Protected, keep open</span>';
     if (k === 'dressup') body += '<span class="sharp-flag">Look sharp</span>';
     if (b.n) body += `<div class="b-note">${esc(b.n)}</div>`;
+    if (hasAlts) body += `<div class="alts"><div class="alts-k">Instead, if you'd rather</div>` +
+      b.alts.map(a => `<div class="alt"><div class="alt-t">${esc(a.t)}</div><div class="alt-m">${a.w ? placeLink(a.w) + ' · ' : ''}${esc(a.why || '')}</div></div>`).join('') + `</div>`;
     body += '</div>';
-    return `<div class="block ${k}${extra}"${markAttr}>${timeCol}${body}</div>`;
+    return trans + `<div class="block ${k}${extra}"${markAttr}>${timeCol}${body}</div>`;
   }).join('');
 
   // Tonight's marquee: marquee sessions on this day, evening kinds
