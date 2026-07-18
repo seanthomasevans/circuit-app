@@ -599,6 +599,18 @@ function viewPrep() {
       ${bg.risk ? `<div class="bc-risk">${esc(bg.risk)}</div>` : ''}
     </div></div>`;
 
+  // Lodging options: closer hotels to review + book (tappable links)
+  const lo = L.lodging_options;
+  const lodgeOpts = (lo && (lo.picks || []).length) ? `<div class="sec"><div class="sec-label">Move hotels?</div><h2>Closer options, review and book</h2>
+    ${lo.note ? `<div class="sec-sub">${esc(lo.note)}</div>` : ''}
+    <div class="hotels">
+      ${lo.picks.map(p => `<div class="hotel${p.best ? ' best' : ''}">
+        <div class="ht-top"><div class="ht-name">${esc(p.name)}${p.best ? '<span class="ht-pick">Pick</span>' : ''}</div><div class="ht-walk">${esc(p.walk || '')}</div></div>
+        ${p.rate ? `<div class="ht-rate">${esc(p.rate)}</div>` : ''}
+        <div class="ht-links">${(p.links || []).map(k => `<a class="ht-link" href="${esc(k.u)}" target="_blank" rel="noopener">${esc(k.l)} ↗</a>`).join('')}</div>
+      </div>`).join('')}
+    </div></div>` : '';
+
   // Sundries: errands near the hotel
   const cann = (sn.note || sn.near_hotel || sn.grocery) ? `<div class="sec"><div class="sec-label">Sundries</div><h2>Errands near the hotel</h2>
     <div class="cann">
@@ -663,7 +675,7 @@ function viewPrep() {
     <div class="sec-sub" style="margin-top:12px">Tap any room in the schedule to open the interactive map for the exact spot.</div></div>`;
 
   // ADHD helper order: what to DO first (tasks, packing), then the reference you reach for.
-  render(masthead() + tasksHtml + packing + flights + logi + cann + venueHtml + briefsHtml);
+  render(masthead() + tasksHtml + lodgeOpts + flights + logi + packing + cann + venueHtml + briefsHtml);
 
   tickCountdown();
   bindTaskRows();
