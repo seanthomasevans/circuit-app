@@ -212,11 +212,21 @@ async function deleteRow(table, id) {
 }
 async function saveState(key, value) {
   // item_state PK is (owner, key); db.js caches by .id, so mirror key into id for the local cache.
+  // One optimistic re-render, then persist. Used by discrete toggles (task done, block done, star)
+  // that need the view to reflect the change. The realtime subscription reconciles later.
   const row = { id: key, key, value };
-  DB.cachePut('item_state', row);          // optimistic check/star, renders instantly
+  DB.cachePut('item_state', row);
   mergeData(dbFromCache()); rerender();
-  await DB.upsert('item_state', row);
-  await syncAfterWrite();
+  try { await DB.upsert('item_state', row); } catch {}
+}
+// Persist an item_state toggle WITHOUT re-rendering. For in-place UIs like the packing list, which
+// update their own DOM (checkbox + progress bar); re-rendering the whole view under the pointer
+// dropped rapid clicks and made the list feel impossible to complete.
+async function persistState(key, value) {
+  const row = { id: key, key, value };
+  DB.cachePut('item_state', row);
+  if (DATA && DATA._state) DATA._state[key] = value;   // keep in-memory state coherent, no re-render
+  try { await DB.upsert('item_state', row); } catch {}
 }
 // After an optimistic write, rebuild DATA from the (now-updated) local cache and re-render immediately.
 // The realtime subscription will reconcile with the server shortly after.
@@ -636,8 +646,8 @@ function viewPrep() {
   };
   document.querySelectorAll('[data-pk]').forEach(cb => cb.onchange = () => {
     localChecks[cb.dataset.pk] = cb.checked;
-    recount();
-    saveState('pack:' + cb.dataset.pk, cb.checked);
+    recount();                                       // update the bar in place
+    persistState('pack:' + cb.dataset.pk, cb.checked); // persist without rebuilding the view
   });
   $('#pp-reset').onclick = async () => {
     if (!confirm('Clear all ticks?')) return;
