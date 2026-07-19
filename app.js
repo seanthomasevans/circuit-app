@@ -359,7 +359,8 @@ function viewToday() {
   const isCantMiss = t => { const s = (t || '').toLowerCase().trim(); return !!s && cantMiss.some(cm => cm === s || cm.includes(s) || s.includes(cm)); };
 
   // Day chips
-  const sel = days.map((x, i) => `<button class="chip ${i === curDay ? 'on' : ''}" data-day="${i}">${esc(x.label.slice(0,3))}<span style="opacity:.6;margin-left:5px;font-weight:400">${shortDate(x.date)}</span></button>`).join('');
+  // Only today-onward: the prep and arrival days are done, no need to navigate back to them.
+  const sel = days.map((x, i) => x.date < tISO ? '' : `<button class="chip ${i === curDay ? 'on' : ''}" data-day="${i}">${esc(x.label.slice(0,3))}<span style="opacity:.6;margin-left:5px;font-weight:400">${shortDate(x.date)}</span></button>`).join('');
 
   // To-handle strip: open + doing tasks, high first; each is checkable and tappable.
   const open = (DATA.tasks || []).filter(t => !taskDone(t))
