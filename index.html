@@ -51,5 +51,16 @@
 <script src="db.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
+<script>
+// Register the worker (network-first, versioned per build). It skip-waits on install and claims
+// the page on activate; controllerchange then reloads once so every deploy lands automatically.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').then(r => { setInterval(() => r.update(), 60000); }).catch(() => {});
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) { refreshing = true; location.reload(); }
+  });
+}
+</script>
 </body>
 </html>
