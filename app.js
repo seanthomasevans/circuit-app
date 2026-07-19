@@ -82,7 +82,27 @@ function mergeData(db) {
   d._state = state;
   d.captures = db.captures || [];
   d.chat = (db.chat || []).slice().sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+  // Budget follows the selected hotel: swap the Lodging line's nightly to the picked hotel's rate.
+  const lo = d.logistics && d.logistics.lodging_options;
+  if (d.budget_items && lo && (lo.picks || []).length) {
+    const sh = lo.picks.find(p => p.id === (state['hotel'] || lo.selected_default)) || lo.picks[0];
+    const items = d.budget_items.map(it => (sh && it.cat === 'Lodging')
+      ? { ...it, amount: sh.nightly, label: sh.name + ', ' + (it.qty || 5) + ' nights', note: (sh.booked ? 'Don covers it, ' : '') + '~$' + sh.nightly + '/nt' }
+      : it);
+    d.budget = computeBudget(items, (d.budget && d.budget.currency) || 'CAD');
+  }
   DATA = d;
+}
+// The currently-selected hotel (item_state 'hotel', else the default), and a plain-English commute line.
+function selectedHotel() {
+  const lo = (DATA.logistics && DATA.logistics.lodging_options) || {};
+  const picks = lo.picks || [];
+  return picks.find(p => p.id === ((DATA._state && DATA._state['hotel']) || lo.selected_default)) || picks[0] || null;
+}
+function commuteStr(h) {
+  if (!h) return '';
+  return h.mode === 'walk' ? `~${h.walk_min} min walk to the LACC (${h.dist})`
+    : `${h.dist} out, so rideshare (~$8-10, 5-10 min) or Metro. Not a walk.`;
 }
 
 /* ---------- unlock ---------- */
@@ -369,41 +389,49 @@ function viewToday() {
     nowbar = `<div class="nowbar">${lead} ${esc(tm)}${esc(r.t)}${r.w ? ' · ' + esc(r.w) : ''}</div>`;
   }
 
-  // Timeline: walk-time between rooms, tinted primary pick, secondaries listed below it.
+  // Timeline: walk-time between rooms, tinted primary pick, tap a secondary to swap it in.
   let prevRoom = null, prevZone = null;
   const blocks = d.blocks.map((b, i) => {
     const k = b.k || 'session';
     const bkey = 'block:' + d.date + ':' + i;
     const bdone = !!(DATA._state && DATA._state[bkey]);
+    const hasAlts = Array.isArray(b.alts) && b.alts.length;
+    // pick override: option 0 = your default block, 1..n = its alts. Tapping a secondary swaps it in.
+    const options = hasAlts ? [{ t: b.t, w: b.w, why: b.n, who: b.who }, ...b.alts] : null;
+    const chosen = hasAlts ? (+(DATA._state && DATA._state['pick:' + d.date + ':' + i]) || 0) : 0;
+    const P = hasAlts ? options[chosen] : {};
+    const pTitle = hasAlts ? P.t : b.t, pRoom = hasAlts ? P.w : b.w, pNote = hasAlts ? P.why : b.n, pWho = hasAlts ? P.who : b.who;
     let extra = bdone ? ' done' : '', markAttr = '';
     if (i === nowIdx) { extra += ' is-now'; markAttr = ' data-mark="Now"'; }
     else if (i === nextIdx) { extra += ' is-next'; markAttr = ' data-mark="Next"'; }
     if (k === 'flex') extra += ' flex';
     if (k === 'dressup') extra += ' dressup';
-    if (isCantMiss(b.t)) extra += ' cant-miss';
-    const hasAlts = Array.isArray(b.alts) && b.alts.length;
+    if (isCantMiss(pTitle)) extra += ' cant-miss';
     if (hasAlts) extra += ' has-alts';
-    // walk time from the previous room-bearing block
+    // walk time from the previous room-bearing block (uses the effective, possibly swapped, room)
     let trans = '';
-    const zone = roomZone(b.w);
-    if (b.s && b.w && prevRoom && b.w !== prevRoom) {
+    const zone = roomZone(pRoom);
+    if (b.s && pRoom && prevRoom && pRoom !== prevRoom) {
       const mins = walkMin(prevZone, zone);
-      if (mins >= 4) trans = `<div class="transit"><span class="tr-arrow">↳</span><span class="tr-min">~${mins} min walk</span><span class="tr-a">${esc(prevRoom)} → ${esc(b.w)}</span></div>`;
+      if (mins >= 4) trans = `<div class="transit"><span class="tr-arrow">↳</span><span class="tr-min">~${mins} min walk</span><span class="tr-a">${esc(prevRoom)} → ${esc(pRoom)}</span></div>`;
     }
-    if (b.s && b.w) { prevRoom = b.w; prevZone = zone; }
+    if (b.s && pRoom) { prevRoom = pRoom; prevZone = zone; }
     const timeCol = !b.s
       ? '<div class="b-time floating">Floating</div>'
       : `<div class="b-time tnum">${esc(b.s)}${b.e ? '<span class="b-end">' + esc(b.e) + '</span>' : ''}</div>`;
     let body = '<div class="b-body">';
-    body += `<div class="b-top"><span class="kchip ${k}">${esc(KIND_LABEL[k] || k)}</span>${hasAlts ? '<span class="pick-tag">Pick</span>' : ''}<button class="b-check${bdone ? ' on' : ''}" data-bcheck="${esc(bkey)}" aria-label="mark done"></button></div>`;
-    body += `<div class="b-title">${isCantMiss(b.t) ? '<span class="cm-star">★</span> ' : ''}${esc(b.t)}</div>`;
-    if (b.w) body += `<div class="b-where">${placeLink(b.w)}</div>`;
-    if (b.who) body += `<div class="b-who"><span class="who-lead">Catch</span>${esc(b.who)}</div>`;
+    body += `<div class="b-top"><span class="kchip ${k}">${esc(KIND_LABEL[k] || k)}</span>${hasAlts ? '<span class="pick-tag">' + (chosen ? 'Swapped' : 'Pick') + '</span>' : ''}<button class="b-check${bdone ? ' on' : ''}" data-bcheck="${esc(bkey)}" aria-label="mark done"></button></div>`;
+    body += `<div class="b-title">${isCantMiss(pTitle) ? '<span class="cm-star">★</span> ' : ''}${esc(pTitle)}</div>`;
+    if (pRoom) body += `<div class="b-where">${placeLink(pRoom)}</div>`;
+    if (pWho) body += `<div class="b-who"><span class="who-lead">Catch</span>${esc(pWho)}</div>`;
     if (k === 'flex') body += '<span class="flex-flag">Protected, keep open</span>';
     if (k === 'dressup') body += '<span class="sharp-flag">Look sharp</span>';
-    if (b.n) body += `<div class="b-note">${esc(b.n)}</div>`;
-    if (hasAlts) body += `<div class="alts"><div class="alts-k">Instead, if you'd rather</div>` +
-      b.alts.map(a => `<div class="alt"><div class="alt-t">${esc(a.t)}</div><div class="alt-m">${a.w ? placeLink(a.w) + ' · ' : ''}${esc(a.why || '')}</div></div>`).join('') + `</div>`;
+    if (pNote) body += `<div class="b-note">${esc(pNote)}</div>`;
+    if (hasAlts) {
+      const others = options.map((o, oi) => ({ o, oi })).filter(x => x.oi !== chosen);
+      body += `<div class="alts"><div class="alts-k">Tap to switch your pick</div>` +
+        others.map(({ o, oi }) => `<div class="alt" data-pick="${d.date}|${i}|${oi}"><div class="alt-t">${esc(o.t)}${oi === 0 ? '<span class="alt-def">your default</span>' : ''}</div><div class="alt-m">${o.w ? placeLink(o.w) + ' · ' : ''}${esc(o.why || '')}</div></div>`).join('') + `</div>`;
+    }
     body += '</div>';
     return trans + `<div class="block ${k}${extra}"${markAttr}>${timeCol}${body}</div>`;
   }).join('');
@@ -446,6 +474,12 @@ function viewToday() {
   document.querySelectorAll('[data-bcheck]').forEach(b => b.onclick = e => {
     e.stopPropagation(); const key = b.dataset.bcheck;
     saveState(key, !(DATA._state && DATA._state[key]));
+  });
+  // tap a secondary option to swap it in as your pick (map links inside still open)
+  document.querySelectorAll('[data-pick]').forEach(el => el.onclick = e => {
+    if (e.target.closest('a')) return;
+    const [date, idx, opt] = el.dataset.pick.split('|');
+    saveState('pick:' + date + ':' + idx, +opt);
   });
   document.querySelectorAll('[data-day]').forEach(b => b.onclick = () => { curDay = +b.dataset.day; viewToday(); window.scrollTo(0, 0); });
 }
@@ -581,15 +615,16 @@ function viewPrep() {
     </div>
     ${fRow ? `<div class="fl-price tnum">$${fRow.line}<span> round trip · ${esc(fRow.payer)}${fRow.note ? ' · ' + esc(fRow.note) : ''}</span></div>` : ''}</div>`;
 
-  // Lodging + transport + venue + badge
+  // Lodging + transport + venue + badge (lodging + commute derive from the selected hotel)
+  const sh = selectedHotel();
   const logi = `<div class="sec"><div class="sec-label">Lodging and transport</div><h2>Getting around, staying put</h2>
     <div class="logi">
-      <div class="lo-cell full"><div class="lo-k">Transport</div>
-        <div class="lo-v">${esc(t.recommended || '')}${t.lacc_distance ? `<span class="lo-sub">The LACC is ${esc(t.lacc_distance)} away.</span>` : ''}</div></div>
+      <div class="lo-cell"><div class="lo-k">Lodging</div>
+        <div class="lo-v"><b>${esc(sh ? sh.name : (lg.place || ''))}</b>${sh && sh.address ? ', ' + esc(sh.address) : ''}<span class="lo-sub">${sh ? esc((sh.booked ? 'Booked. ' : '') + commuteStr(sh)) : esc(lg.note || '')}</span></div></div>
       <div class="lo-cell"><div class="lo-k">Airport rides</div>
         <div class="lo-v">In <b>${esc(air.in || '')}</b> · out <b>${esc(air.out || '')}</b><span class="lo-sub">Uber both airport legs.</span></div></div>
-      <div class="lo-cell"><div class="lo-k">Lodging</div>
-        <div class="lo-v"><b>${esc(lg.place || '')}</b>${lg.area ? ', ' + esc(lg.area) : ''}<span class="lo-sub">${esc(lg.note || '')}</span></div></div>
+      <div class="lo-cell full"><div class="lo-k">Getting to the floor</div>
+        <div class="lo-v">${sh ? esc(commuteStr(sh)) : esc(t.recommended || '')}</div></div>
       <div class="lo-cell full"><div class="lo-k">Venue</div>
         <div class="lo-v"><b>${esc(ven.name || '')}</b>${ven.addr ? ', ' + esc(ven.addr) : ''}<span class="lo-sub">${esc(ven.dates || '')}${ven.floor_hours ? ' · floor ' + esc(ven.floor_hours) : ''}</span></div></div>
     </div>
@@ -599,15 +634,17 @@ function viewPrep() {
       ${bg.risk ? `<div class="bc-risk">${esc(bg.risk)}</div>` : ''}
     </div></div>`;
 
-  // Lodging options: closer hotels to review + book (tappable links)
+  // Lodging options: tap a hotel to make it your base (plan + budget follow); links open booking.
   const lo = L.lodging_options;
-  const lodgeOpts = (lo && (lo.picks || []).length) ? `<div class="sec"><div class="sec-label">Move hotels?</div><h2>Closer options, review and book</h2>
+  const selId = sh ? sh.id : '';
+  const walkLabel = p => p.mode === 'walk' ? `${p.walk_min} min walk` : `${p.dist}, ride`;
+  const lodgeOpts = (lo && (lo.picks || []).length) ? `<div class="sec"><div class="sec-label">Lodging</div><h2>Your base, tap to switch</h2>
     ${lo.note ? `<div class="sec-sub">${esc(lo.note)}</div>` : ''}
     <div class="hotels">
-      ${lo.picks.map(p => `<div class="hotel${p.best ? ' best' : ''}">
-        <div class="ht-top"><div class="ht-name">${esc(p.name)}${p.best ? '<span class="ht-pick">Pick</span>' : ''}</div><div class="ht-walk">${esc(p.walk || '')}</div></div>
+      ${lo.picks.map(p => `<div class="hotel${p.id === selId ? ' current' : (p.best ? ' best' : '')}" data-hotel="${esc(p.id)}">
+        <div class="ht-top"><div class="ht-name">${esc(p.name)}${p.id === selId ? '<span class="ht-cur">Selected</span>' : (p.best ? '<span class="ht-pick">Best</span>' : '')}</div><div class="ht-walk">${esc(walkLabel(p))}</div></div>
         ${p.rate ? `<div class="ht-rate">${esc(p.rate)}</div>` : ''}
-        <div class="ht-links">${(p.links || []).map(k => `<a class="ht-link" href="${esc(k.u)}" target="_blank" rel="noopener">${esc(k.l)} ↗</a>`).join('')}</div>
+        <div class="ht-links">${(p.links || []).map(k => `<a class="ht-link" href="${esc(k.u)}" target="_blank" rel="noopener">${esc(k.l)}</a>`).join('')}</div>
       </div>`).join('')}
     </div></div>` : '';
 
@@ -643,9 +680,10 @@ function viewPrep() {
     </div>
     ${packSecs}</div>`;
 
-  // Briefs (collapsible markdown)
-  const briefsHtml = briefs.length ? `<div class="sec"><div class="sec-label">Reference briefs</div><h2>The background reading</h2>
-    ${briefs.map((b, i) => `<details class="brief"${i === 0 ? ' open' : ''}><summary><span class="bs-t">${esc(b.title)}</span><span class="bs-i">+</span></summary>
+  // Briefs (collapsible markdown) — only the prep-relevant ones; older context lives in Knowledge.
+  const prepBriefs = briefs.filter(b => b.where !== 'knowledge');
+  const briefsHtml = prepBriefs.length ? `<div class="sec"><div class="sec-label">Reference briefs</div><h2>The background reading</h2>
+    ${prepBriefs.map((b) => `<details class="brief"><summary><span class="bs-t">${esc(b.title)}</span><span class="bs-i">+</span></summary>
       <div class="bs-body"><div class="md">${renderMd(b.md)}</div></div></details>`).join('')}</div>` : '';
 
   // Tasks (checkable + editable + add)
@@ -679,6 +717,12 @@ function viewPrep() {
 
   tickCountdown();
   bindTaskRows();
+
+  // Tap a hotel to make it your base (plan + budget follow); links still open.
+  document.querySelectorAll('[data-hotel]').forEach(el => el.onclick = e => {
+    if (e.target.closest('a')) return;
+    saveState('hotel', el.dataset.hotel);
+  });
 
   // Packing interactions -> item_state (synced). Optimistic: flip the bar immediately, persist in the background.
   const localChecks = { ...checks };
@@ -828,6 +872,11 @@ function viewKnowledge() {
       ${missing.map(m => `<div class="reason-row"><div class="rr-when tnum">${esc(shortDate(m.date))}${m.time ? ' · ' + esc(m.time) : ''}</div><div><div class="rr-t">${esc(m.title)}</div>${m.why ? `<div class="rr-w">${esc(m.why)}</div>` : ''}</div></div>`).join('')}
     </div></details>` : '';
 
+  // Context: older reference (prior SIGGRAPH notes) lives here, not in Prep.
+  const kBriefs = (DATA.briefs || []).filter(b => b.where === 'knowledge');
+  const context = kBriefs.map(b => `<details class="brief"><summary><span class="bs-t">${esc(b.title)}</span><span class="bs-i">+</span></summary>
+      <div class="bs-body"><div class="md">${renderMd(b.md)}</div></div></details>`).join('');
+
   render(
     `<div class="sec headview"><div class="sec-label">Knowledge</div><h2>Knowledge &amp; reasoning</h2>
       <div class="sec-sub">A name, a link, a thing you saw on the floor. Drop it now, triage later. Syncs across devices.</div>
@@ -840,6 +889,7 @@ function viewKnowledge() {
         </div>
       </div>
       ${reasoning}
+      ${context}
       ${list}</div>`);
   tickCountdown();
   $('#cap-mic').onclick = () => dictate($('#cap-txt'), $('#cap-mic'));
