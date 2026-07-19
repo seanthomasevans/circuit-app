@@ -554,37 +554,49 @@ function dayShort(day) {
   return m ? m[1].slice(0, 3) : day.split(' ')[0];
 }
 
-/* ---------- People ---------- */
+/* ---------- People (the hunt) ---------- */
 let ppFilter = { obj: 'all' };
+// Met status is an item_state overlay ('met:<id>') on top of the contact's default status.
+function metState(c) { const k = 'met:' + c.id; if (DATA._state && k in DATA._state) return !!DATA._state[k]; return c.status === 'met'; }
 function viewPeople() {
   const C = DATA.contacts, objs = DATA.objectives || [];
   const objMap = objMapN();
   const objChips = objs.map((o, i) => `<button class="chip obj ${ppFilter.obj === o.id ? 'on' : ''}" data-f="obj" data-v="${o.id}"><span class="obj-tag-n">${i + 1}</span>${esc(o.short)}</button>`).join('');
-  let list = C.filter(c => ppFilter.obj === 'all' || (c.objectives || []).includes(ppFilter.obj));
+  const total = C.length, caught = C.filter(metState).length, pct = total ? Math.round(caught / total * 100) : 0;
+  const list = C.filter(c => ppFilter.obj === 'all' || (c.objectives || []).includes(ppFilter.obj))
+    .slice().sort((a, b) => (metState(a) ? 1 : 0) - (metState(b) ? 1 : 0));  // targets first, caught sink
   const cards = list.map(c => {
+    const met = metState(c);
     const chips = (c.objectives || []).map(oid => { const o = objMap[oid]; return o ? `<span class="c-chip"><span class="obj-tag-n">${o.n}</span>${esc(o.short)}</span>` : ''; }).join('');
-    const statCls = c.hook_confirmed ? 'c-stat hooked' : 'c-stat';
-    const statTxt = c.hook_confirmed ? 'hook confirmed' : 'target';
-    return `<div class="card" data-p="${esc(c.id)}">
-      <div class="c-top"><div class="c-name">${esc(c.name)}</div><div class="${statCls}">${statTxt}</div></div>
+    return `<div class="card${met ? ' caught' : ''}" data-p="${esc(c.id)}">
+      <div class="c-top"><div class="c-name">${esc(c.name)}</div><button class="catch-btn${met ? ' on' : ''}" data-met="${esc(c.id)}">${met ? '✓ Caught' : 'Mark met'}</button></div>
       <div class="c-role"><b>${esc(c.role || '')}</b>${c.company ? ' @ ' + esc(c.company) : ''}</div>
       ${chips ? `<div class="c-chips">${chips}</div>` : ''}
-      ${c.source ? `<div class="c-src">${esc(c.source)}</div>` : ''}
       ${c.opener ? `<div class="c-open">${esc(c.opener)}</div>` : ''}
-      ${c.hook_confirmed === false ? '<div class="c-warn">Hook unconfirmed · verify before leading with it.</div>' : ''}
+      ${c.hook_confirmed === false && !met ? '<div class="c-warn">Hook unconfirmed · verify before leading with it.</div>' : ''}
+      ${met ? `<button class="send-btn" data-send="${esc(c.id)}">Send them something fun ↗</button>` : ''}
     </div>`;
-  }).join('') || '<div class="empty">No contacts here.</div>';
+  }).join('') || '<div class="empty">No one here.</div>';
 
   render(masthead() +
-    `<div class="sec"><h2>Networking targets</h2>
-      <div class="sec-label" style="margin:8px 0 0">People to corner</div>
-      <div class="sec-sub">${list.length} people, talking points loaded. Tap one for the detail.</div>
+    `<div class="sec"><div class="sec-label">The hunt</div><h2>People</h2>
+      <div class="hunt">
+        <div class="hunt-top"><div class="hunt-score tnum">${caught}<span> / ${total} caught</span></div><div class="hunt-pts tnum">${caught * 10} pts</div></div>
+        <div class="hunt-bar"><i style="width:${pct}%"></i></div>
+        <div class="hunt-sub">${caught === total && total ? 'Full house. You cornered everyone.' : (total - caught) + ' still in the wild. Tap Mark met the moment you shake their hand.'}</div>
+      </div>
       <div class="chips" style="margin-top:14px">${objChips}</div>
       <div class="people">${cards}</div></div>`);
 
   tickCountdown();
   document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { ppFilter.obj = ppFilter.obj === b.dataset.v ? 'all' : b.dataset.v; viewPeople(); });
-  document.querySelectorAll('[data-p]').forEach(c => c.onclick = () => sheetPerson(c.dataset.p));
+  document.querySelectorAll('[data-p]').forEach(el => el.onclick = e => { if (e.target.closest('button')) return; sheetPerson(el.dataset.p); });
+  document.querySelectorAll('[data-met]').forEach(b => b.onclick = e => { e.stopPropagation(); const c = DATA.contacts.find(x => x.id === b.dataset.met); if (c) saveState('met:' + c.id, !metState(c)); });
+  document.querySelectorAll('[data-send]').forEach(b => b.onclick = async e => {
+    e.stopPropagation(); const c = DATA.contacts.find(x => x.id === b.dataset.send); if (!c) return;
+    b.disabled = true; b.textContent = 'Queued for the Agent';
+    await saveRow('chat', { id: uuid(), role: 'user', body: `Draft a short, warm, personalized follow-up to ${c.name} (${c.role || ''}${c.company ? ' @ ' + c.company : ''}) that I can send after meeting them at SIGGRAPH. Tie it to ${(c.objectives || []).join(', ') || 'our work'}, make it feel like we do genuinely cool stuff, keep it human and specific, no AI-slop. Suggest one fun, personalized thing to send them.`, status: 'pending', created_at: new Date().toISOString() });
+  });
 }
 
 /* ---------- Prep ---------- */
@@ -644,7 +656,7 @@ function viewPrep() {
       ${lo.picks.map(p => `<div class="hotel${p.id === selId ? ' current' : (p.best ? ' best' : '')}" data-hotel="${esc(p.id)}">
         <div class="ht-top"><div class="ht-name">${esc(p.name)}${p.id === selId ? '<span class="ht-cur">Selected</span>' : (p.best ? '<span class="ht-pick">Best</span>' : '')}</div><div class="ht-walk">${esc(walkLabel(p))}</div></div>
         ${p.rate ? `<div class="ht-rate">${esc(p.rate)}</div>` : ''}
-        <div class="ht-links">${(p.links || []).map(k => `<a class="ht-link" href="${esc(k.u)}" target="_blank" rel="noopener">${esc(k.l)}</a>`).join('')}</div>
+        <div class="ht-links"><a class="ht-link sv" href="https://www.google.com/maps/place/${encodeURIComponent((p.address || p.name) + ', Los Angeles')}" target="_blank" rel="noopener">Street View</a>${(p.links || []).map(k => `<a class="ht-link" href="${esc(k.u)}" target="_blank" rel="noopener">${esc(k.l)}</a>`).join('')}</div>
       </div>`).join('')}
     </div></div>` : '';
 
