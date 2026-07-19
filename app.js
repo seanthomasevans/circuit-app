@@ -122,10 +122,24 @@ async function boot() {
   // Dev plaintext shortcut (no auth, no DB): window.DATA carries everything.
   if (window.DATA) { REF = window.DATA; mergeData(DATA_devTables(window.DATA)); $('#gate').classList.add('hide'); start(); return; }
 
-  $('#gate').classList.remove('hide');
+  $('#gate').classList.add('hide');   // keep it hidden while we try a silent auto-unlock; shown only if that fails
   const emailEl = $('#email'), pwEl = $('#pw');
   emailEl.value = store.get('email') || '';
 
+  // Remembered credentials: auto-unlock silently, no gate. Every reload/deploy just re-decrypts the
+  // fresh bundle and re-auths with the saved password, so you are never bounced to the login again.
+  const savedEmail = store.get('email'), savedPw = store.get('pw');
+  if (savedEmail && savedPw) {
+    try {
+      const ref = await decrypt(savedPw);           // throws if the password is wrong or changed
+      if (DB.ready) { const { error } = await DB.auth.signIn(savedEmail, savedPw); if (error) throw new Error('auth'); }
+      REF = ref;
+      await enter();
+      return;                                        // stayed signed in, gate never shown
+    } catch (e) { store.set('pw', null); }           // stale/changed: clear and fall through to the gate
+  }
+
+  $('#gate').classList.remove('hide');
   const signIn = async () => {
     $('#gerr').textContent = '';
     const email = (emailEl.value || '').trim();
@@ -133,12 +147,13 @@ async function boot() {
     if (!email || !pw) { $('#gerr').textContent = 'Enter your email and password.'; return; }
     $('#unlock').disabled = true; $('#unlock').textContent = 'Signing in…';
     try {
-      // (a) authenticate Supabase, (b) decrypt the static bundle with the SAME password.
+      // (a) decrypt the static bundle, (b) authenticate Supabase, both with the SAME password.
       const ref = await decrypt(pw);            // throws on wrong password
       const { error } = await DB.auth.signIn(email, pw);
       if (error) throw new Error(error.message || 'auth');
       REF = ref;
       store.set('email', email);
+      store.set('pw', pw);                      // remember it so reloads and deploys keep you in
       await enter();
     } catch (e) {
       $('#gerr').textContent = /auth|invalid|credential/i.test(String(e && e.message))
@@ -151,15 +166,7 @@ async function boot() {
   $('#unlock').onclick = signIn;
   pwEl.onkeydown = e => { if (e.key === 'Enter') signIn(); };
   emailEl.onkeydown = e => { if (e.key === 'Enter') pwEl.focus(); };
-
-  // Auto-resume: a persisted Supabase session means we only need the password to decrypt.
-  const sess = DB.ready ? await DB.auth.session() : null;
-  if (sess && store.get('email')) {
-    // Session is live but the reference cipher still needs the password each cold start.
-    emailEl.value = store.get('email'); pwEl.focus();
-  } else {
-    (emailEl.value ? pwEl : emailEl).focus();
-  }
+  (emailEl.value ? pwEl : emailEl).focus();
 }
 
 // In dev (plaintext) mode there is no Supabase, so the live tables start empty; reference is in REF.
