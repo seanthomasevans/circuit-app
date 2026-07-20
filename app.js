@@ -329,7 +329,7 @@ function objectivesCard() {
 
 /* ---------- Today (run of day) ---------- */
 let curDay = null;
-const KIND_LABEL = { session:'Session', travel:'Travel', meal:'Meal', coffee:'Coffee', network:'Network', flex:'Flex', evening:'Evening', admin:'Admin', dressup:'Dress up' };
+const KIND_LABEL = { session:'Session', travel:'Travel', meal:'Meal', coffee:'Coffee', network:'Network', flex:'Flex', evening:'Evening', admin:'Admin', dressup:'Dress up', paper:'Paper' };
 
 // Task completion is an item_state overlay ('task:<id>') on top of the static task's default status,
 // so a check persists and syncs without mutating the static source.
