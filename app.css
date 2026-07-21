@@ -636,9 +636,13 @@ nav.tabs a .tl{line-height:1;}
 .kw-h{font-size:10px;letter-spacing:0.08em;text-transform:uppercase;font-weight:700;color:var(--faint);margin-bottom:5px;}
 .kw-b{font-size:13.5px;line-height:1.58;color:#2b2b2b;}
 .kw-b p+p{margin-top:8px;}
-.kw-m{margin-top:9px;padding-left:11px;border-left:2px solid var(--line);}
-.kw-mn{font-size:12.5px;font-weight:700;color:var(--ink);font-family:"SF Mono",ui-monospace,Menlo,monospace;line-height:1.4;}
-.kw-mp{font-size:13px;line-height:1.55;color:#3a3a3a;margin-top:3px;}
+.kw-m{margin-top:12px;padding-left:11px;border-left:2px solid var(--line);}
+.kw-mn{font-size:12.5px;font-weight:700;color:var(--ink);line-height:1.4;}
+.kw-eq{margin:7px 0 5px;padding:8px 10px;background:var(--wash);border-radius:6px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;}
+.kw-eq:empty{display:none;}
+.kw-eq .katex{font-size:1.04em;color:var(--ink);white-space:nowrap;}
+.kw-eq:not(:has(.katex)){font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12px;color:#444;white-space:pre-wrap;}
+.kw-mp{font-size:13px;line-height:1.55;color:#3a3a3a;margin-top:4px;}
 .kw-sec.angle .kw-h{color:var(--red);}
 .kw-sec.angle{border-left:2px solid var(--red);padding-left:11px;margin-left:-13px;padding-left:11px;}
 .kw-unres{font-size:11.5px;line-height:1.45;color:var(--faint);margin-top:12px;font-style:italic;}
