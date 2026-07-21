@@ -899,19 +899,57 @@ function viewKnowledge() {
 
   // Research & reasoning: deep-researched threads + items distilled from your captures.
   const K = DATA.knowledge || { threads: [], items: [] };
-  const kw = it => `<div class="kw-item"><div class="kw-t">${esc(it.title)}</div>
-      ${it.authors ? `<div class="kw-by">${esc(it.authors)}</div>` : ''}
-      ${it.innovation ? `<div class="kw-inn">${esc(it.innovation)}</div>` : ''}
-      ${it.representation ? `<div class="kw-tag"><span class="kw-k">How</span> ${esc(it.representation)}</div>` : ''}
-      ${it.reasoning_gap ? `<div class="kw-tag"><span class="kw-k">Gap</span> ${esc(it.reasoning_gap)}</div>` : ''}
-      ${it.sean_angle ? `<div class="kw-tag angle"><span class="kw-k">Angle</span> ${esc(it.sean_angle)}</div>` : ''}
-      ${(it.links || []).length ? `<div class="kw-links">${it.links.map(l => `<a class="kw-link" href="${esc(l.u)}" target="_blank" rel="noopener">${esc(l.l)} ↗</a>`).join('')}</div>` : ''}
-    </div>`;
-  const threadsHtml = (K.threads || []).map(th => `<details class="brief" open><summary><span class="bs-t">${esc(th.title)}</span><span class="bs-i">+</span></summary><div class="bs-body">
+  const LANE_LABEL = { 'spatial-3d-gen': 'Spatial & 3D', 'gen-video-humans': 'Gen video · humans',
+    'series-episodic-pipelines': 'Series & episodic', 'agent-pipelines-workflows': 'Agent pipelines', 'other': 'Floor' };
+  const p = t => t ? `<p>${esc(t).replace(/\n+/g, '</p><p>')}</p>` : '';
+  const sect = (label, body) => body ? `<div class="kw-sec"><div class="kw-h">${label}</div><div class="kw-b">${body}</div></div>` : '';
+  const mathHtml = m => (m && m.length) ? `<div class="kw-sec"><div class="kw-h">The math, in plain terms</div>${m.map(x =>
+      `<div class="kw-m"><div class="kw-mn">${esc(x.name)}</div><div class="kw-mp">${esc(x.plain)}</div></div>`).join('')}</div>` : '';
+  const linksHtml = ls => (ls && ls.length) ? `<div class="kw-links">${ls.map(l =>
+      `<a class="kw-link" href="${esc(l.u)}" target="_blank" rel="noopener">${esc(l.l)} ↗</a>`).join('')}</div>` : '';
+  // one card renderer for both curated (innovation/gap/angle) and deep (problem/method/math/…) items
+  const kw = it => {
+    const gist = it.one_liner || it.innovation || it.key_claim || '';
+    const conf = it.match_confidence ? `<span class="kw-conf c-${esc(it.match_confidence)}">${esc(it.match_confidence)}</span>` : '';
+    const angle = it.sean_objective || it.sean_angle;
+    const body =
+      (it.eli ? `<div class="kw-eli">${p(it.eli)}</div>` : '') +
+      sect('The problem', p(it.problem)) +
+      sect('How it works', p(it.method)) +
+      mathHtml(it.the_math) +
+      sect("What's new", p(it.whats_new)) +
+      sect('How it encodes geometry', p(it.representation)) +
+      sect('Reasoning lens', p(it.reasoning_lens || it.reasoning_gap)) +
+      sect('Results', p(it.results)) +
+      (angle ? `<div class="kw-sec angle"><div class="kw-h">Your angle · Dark Half</div><div class="kw-b">${p(angle)}</div></div>` : '') +
+      linksHtml(it.links) +
+      (it.unresolved ? `<div class="kw-unres">Open: ${esc(it.unresolved)}</div>` : '');
+    const blob = (it.title + ' ' + (it.authors || '') + ' ' + gist + ' ' + (it.eli || '')).toLowerCase();
+    return `<details class="kw-card" data-lane="${esc(it.lane || 'other')}" data-rel="${it.relevance || 0}" data-search="${esc(blob)}"><summary>
+        <div class="kw-ct"><span class="kw-t">${esc(it.title)}</span>${conf}</div>
+        ${it.authors ? `<div class="kw-by">${esc(it.authors)}</div>` : ''}
+        ${gist ? `<div class="kw-gist">${esc(gist)}</div>` : ''}
+      </summary><div class="kw-body">${body || '<p class="kw-thin">No detail yet.</p>'}</div></details>`;
+  };
+  const threadsHtml = (K.threads || []).map(th => `<div class="kw-thread">
+      <div class="kw-th-h"><span class="kw-th-t">${esc(th.title)}</span>${th.tag ? `<span class="kw-th-tag">${esc(th.tag)}</span>` : ''}</div>
       ${th.synthesis ? `<div class="kw-syn">${esc(th.synthesis)}</div>` : ''}
-      ${(th.items || []).map(kw).join('')}</div></details>`).join('');
-  const capItemsHtml = (K.items || []).length ? `<div class="sec-label" style="margin:18px 0 4px">From your captures</div>${(K.items || []).map(kw).join('')}` : '';
-  const researchHtml = (threadsHtml || capItemsHtml) ? `<div class="ksec"><div class="sec-label">Research &amp; reasoning</div>${threadsHtml}${capItemsHtml}</div>` : '';
+      <div class="kw-cards">${(th.items || []).map(kw).join('')}</div></div>`).join('');
+  const capItemsHtml = (K.items || []).length ? `<div class="kw-thread"><div class="kw-th-h"><span class="kw-th-t">From your captures</span></div><div class="kw-cards">${(K.items || []).map(kw).join('')}</div></div>` : '';
+  const introHtml = K.intro ? `<div class="kw-intro">${esc(K.intro)}</div>` : '';
+  // Filter/search bar: makes 40+ items navigable. Chips per lane (with counts) + free-text + can't-miss.
+  const allItems = (K.threads || []).flatMap(t => t.items || []).concat(K.items || []);
+  const laneCounts = {};
+  allItems.forEach(it => { const l = it.lane || 'other'; laneCounts[l] = (laneCounts[l] || 0) + 1; });
+  const LANE_ORDER = ['spatial-3d-gen', 'gen-video-humans', 'series-episodic-pipelines', 'agent-pipelines-workflows', 'other'];
+  const chips = [`<button class="kw-chip on" data-lane="all">All · ${allItems.length}</button>`]
+    .concat(LANE_ORDER.filter(l => laneCounts[l]).map(l => `<button class="kw-chip" data-lane="${l}">${LANE_LABEL[l]} · ${laneCounts[l]}</button>`));
+  const cantMiss = allItems.filter(it => (it.relevance || 0) >= 3).length;
+  if (cantMiss) chips.push(`<button class="kw-chip cm" data-lane="cantmiss">★ Can’t-miss · ${cantMiss}</button>`);
+  const filterBar = allItems.length > 6 ? `<div class="kw-filter" id="kw-filter">
+      <input id="kw-search" type="search" placeholder="Search papers, authors, ideas…" autocapitalize="off" spellcheck="false">
+      <div class="kw-chips-row">${chips.join('')}</div></div>` : '';
+  const researchHtml = (threadsHtml || capItemsHtml) ? `<div class="ksec"><div class="sec-label">Research &amp; reasoning</div>${introHtml}${filterBar}${threadsHtml}${capItemsHtml}</div>` : '';
 
   render(
     `<div class="sec headview"><div class="sec-label">Knowledge</div><h2>Knowledge &amp; reasoning</h2>
@@ -935,6 +973,30 @@ function viewKnowledge() {
     $('#cap-save').disabled = true;
     await saveRow('captures', { id: uuid(), body, tags: ['note'], status: 'inbox', created_at: new Date().toISOString() });
   };
+  // Knowledge filter: lane chips + free-text search; hides empty threads as you narrow.
+  const kwBar = document.getElementById('kw-filter');
+  if (kwBar) {
+    let lane = 'all', q = '';
+    const cards = [...document.querySelectorAll('.kw-card')];
+    const threads = [...document.querySelectorAll('.kw-thread')];
+    const apply = () => {
+      cards.forEach(c => {
+        const okLane = lane === 'all' || (lane === 'cantmiss' ? (+c.dataset.rel >= 3) : c.dataset.lane === lane);
+        const okQ = !q || (c.dataset.search || '').includes(q);
+        c.style.display = (okLane && okQ) ? '' : 'none';
+      });
+      threads.forEach(t => {
+        t.style.display = [...t.querySelectorAll('.kw-card')].some(c => c.style.display !== 'none') ? '' : 'none';
+      });
+    };
+    kwBar.querySelectorAll('.kw-chip').forEach(ch => ch.onclick = () => {
+      lane = ch.dataset.lane;
+      kwBar.querySelectorAll('.kw-chip').forEach(x => x.classList.toggle('on', x === ch));
+      apply();
+    });
+    const si = document.getElementById('kw-search');
+    if (si) si.oninput = () => { q = si.value.trim().toLowerCase(); apply(); };
+  }
   document.querySelectorAll('[data-capdel]').forEach(b => b.onclick = async () => { if (!confirm('Delete this capture?')) return; await deleteRow('captures', b.dataset.capdel); });
 }
 
