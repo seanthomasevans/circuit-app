@@ -897,6 +897,22 @@ function viewKnowledge() {
   const context = kBriefs.map(b => `<details class="brief"><summary><span class="bs-t">${esc(b.title)}</span><span class="bs-i">+</span></summary>
       <div class="bs-body"><div class="md">${renderMd(b.md)}</div></div></details>`).join('');
 
+  // Research & reasoning: deep-researched threads + items distilled from your captures.
+  const K = DATA.knowledge || { threads: [], items: [] };
+  const kw = it => `<div class="kw-item"><div class="kw-t">${esc(it.title)}</div>
+      ${it.authors ? `<div class="kw-by">${esc(it.authors)}</div>` : ''}
+      ${it.innovation ? `<div class="kw-inn">${esc(it.innovation)}</div>` : ''}
+      ${it.representation ? `<div class="kw-tag"><span class="kw-k">How</span> ${esc(it.representation)}</div>` : ''}
+      ${it.reasoning_gap ? `<div class="kw-tag"><span class="kw-k">Gap</span> ${esc(it.reasoning_gap)}</div>` : ''}
+      ${it.sean_angle ? `<div class="kw-tag angle"><span class="kw-k">Angle</span> ${esc(it.sean_angle)}</div>` : ''}
+      ${(it.links || []).length ? `<div class="kw-links">${it.links.map(l => `<a class="kw-link" href="${esc(l.u)}" target="_blank" rel="noopener">${esc(l.l)} ↗</a>`).join('')}</div>` : ''}
+    </div>`;
+  const threadsHtml = (K.threads || []).map(th => `<details class="brief" open><summary><span class="bs-t">${esc(th.title)}</span><span class="bs-i">+</span></summary><div class="bs-body">
+      ${th.synthesis ? `<div class="kw-syn">${esc(th.synthesis)}</div>` : ''}
+      ${(th.items || []).map(kw).join('')}</div></details>`).join('');
+  const capItemsHtml = (K.items || []).length ? `<div class="sec-label" style="margin:18px 0 4px">From your captures</div>${(K.items || []).map(kw).join('')}` : '';
+  const researchHtml = (threadsHtml || capItemsHtml) ? `<div class="ksec"><div class="sec-label">Research &amp; reasoning</div>${threadsHtml}${capItemsHtml}</div>` : '';
+
   render(
     `<div class="sec headview"><div class="sec-label">Knowledge</div><h2>Knowledge &amp; reasoning</h2>
       <div class="sec-sub">A name, a link, a thing you saw on the floor. Drop it now, triage later. Syncs across devices.</div>
@@ -908,6 +924,7 @@ function viewKnowledge() {
           <button class="btn primary cap-save" id="cap-save">Save</button>
         </div>
       </div>
+      ${researchHtml}
       ${reasoning}
       ${context}
       ${list}</div>`);
