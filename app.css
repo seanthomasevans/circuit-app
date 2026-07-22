@@ -642,7 +642,12 @@ nav.tabs a .tl{line-height:1;}
 .kw-eq:empty{display:none;}
 .kw-eq .katex{font-size:1.04em;color:var(--ink);white-space:nowrap;}
 .kw-eq:not(:has(.katex)){font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12px;color:#444;white-space:pre-wrap;}
-.kw-mp{font-size:13px;line-height:1.55;color:#3a3a3a;margin-top:4px;}
+.kw-terms{margin:6px 0 2px;padding:4px 11px;background:#fbfbfa;border:1px solid var(--line);border-radius:6px;}
+.kw-term{display:flex;gap:10px;padding:5px 0;font-size:12.5px;line-height:1.5;}
+.kw-term+.kw-term{border-top:1px solid #eeeeec;}
+.kw-ts{flex:0 0 auto;min-width:38px;color:var(--ink);font-size:12.5px;}
+.kw-td{color:#4a4a4a;}
+.kw-mp{font-size:13px;line-height:1.55;color:#3a3a3a;margin-top:6px;}
 .kw-sec.angle .kw-h{color:var(--red);}
 .kw-sec.angle{border-left:2px solid var(--red);padding-left:11px;margin-left:-13px;padding-left:11px;}
 .kw-unres{font-size:11.5px;line-height:1.45;color:var(--faint);margin-top:12px;font-style:italic;}

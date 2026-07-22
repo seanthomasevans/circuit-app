@@ -903,8 +903,10 @@ function viewKnowledge() {
     'series-episodic-pipelines': 'Series & episodic', 'agent-pipelines-workflows': 'Agent pipelines', 'other': 'Floor' };
   const p = t => t ? `<p>${esc(t).replace(/\n+/g, '</p><p>')}</p>` : '';
   const sect = (label, body) => body ? `<div class="kw-sec"><div class="kw-h">${label}</div><div class="kw-b">${body}</div></div>` : '';
+  const termsHtml = ts => (ts && ts.length) ? `<div class="kw-terms">${ts.map(t =>
+      `<div class="kw-term"><span class="kw-ts" data-itex="${esc(t.sym)}"></span><span class="kw-td">${esc(t.def)}</span></div>`).join('')}</div>` : '';
   const mathHtml = m => (m && m.length) ? `<div class="kw-sec"><div class="kw-h">The math, in plain terms</div>${m.map(x =>
-      `<div class="kw-m"><div class="kw-mn">${esc(x.name)}</div>${x.latex ? `<div class="kw-eq" data-tex="${esc(x.latex)}"></div>` : ''}<div class="kw-mp">${esc(x.plain)}</div></div>`).join('')}</div>` : '';
+      `<div class="kw-m"><div class="kw-mn">${esc(x.name)}</div>${x.latex ? `<div class="kw-eq" data-tex="${esc(x.latex)}"></div>` : ''}${termsHtml(x.terms)}<div class="kw-mp">${esc(x.plain)}</div></div>`).join('')}</div>` : '';
   const linksHtml = ls => (ls && ls.length) ? `<div class="kw-links">${ls.map(l =>
       `<a class="kw-link" href="${esc(l.u)}" target="_blank" rel="noopener">${esc(l.l)} ↗</a>`).join('')}</div>` : '';
   // one card renderer for both curated (innovation/gap/angle) and deep (problem/method/math/…) items
@@ -967,12 +969,19 @@ function viewKnowledge() {
       ${context}
       ${list}</div>`);
   tickCountdown();
-  // Typeset equations with KaTeX (display mode). Falls back to raw LaTeX if KaTeX isn't loaded/cached.
+  // Typeset equations with KaTeX. Display for the equation block, inline for each defined symbol.
+  // Falls back to raw LaTeX if KaTeX isn't loaded/cached.
   document.querySelectorAll('.kw-eq[data-tex]').forEach(el => {
     if (window.katex) {
       try { katex.render(el.dataset.tex, el, { throwOnError: false, displayMode: true }); }
       catch (e) { el.textContent = el.dataset.tex; }
     } else { el.textContent = el.dataset.tex; }
+  });
+  document.querySelectorAll('.kw-ts[data-itex]').forEach(el => {
+    if (window.katex) {
+      try { katex.render(el.dataset.itex, el, { throwOnError: false, displayMode: false }); }
+      catch (e) { el.textContent = el.dataset.itex; }
+    } else { el.textContent = el.dataset.itex; }
   });
   $('#cap-mic').onclick = () => dictate($('#cap-txt'), $('#cap-mic'));
   $('#cap-save').onclick = async () => {
