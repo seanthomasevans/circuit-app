@@ -901,6 +901,8 @@ function viewKnowledge() {
   const K = DATA.knowledge || { threads: [], items: [] };
   const LANE_LABEL = { 'spatial-3d-gen': 'Spatial & 3D', 'gen-video-humans': 'Gen video · humans',
     'series-episodic-pipelines': 'Series & episodic', 'agent-pipelines-workflows': 'Agent pipelines', 'other': 'Floor' };
+  // Flag a research item as relevant → floats it up, filters to it, and queues it for deeper synthesis.
+  const kflag = id => !!(DATA._state && DATA._state['kflag:' + id]);
   const p = t => t ? `<p>${esc(t).replace(/\n+/g, '</p><p>')}</p>` : '';
   const sect = (label, body) => body ? `<div class="kw-sec"><div class="kw-h">${label}</div><div class="kw-b">${body}</div></div>` : '';
   const termsHtml = ts => (ts && ts.length) ? `<div class="kw-terms">${ts.map(t =>
@@ -923,20 +925,24 @@ function viewKnowledge() {
       sect('How it encodes geometry', p(it.representation)) +
       sect('Reasoning lens', p(it.reasoning_lens || it.reasoning_gap)) +
       sect('Results', p(it.results)) +
+      ((it.clips && it.clips.length) ? `<div class="kw-sec"><div class="kw-h">Clip${it.clips.length > 1 ? 's' : ''} you filmed</div>${it.clips.map(c =>
+        `<div class="kw-clip">${esc(c.motion_description || c.key_claim || c.title || '')}${c.file ? ` <span class="kw-clip-f">${esc(c.file)}</span>` : ''}</div>`).join('')}</div>` : '') +
       (angle ? `<div class="kw-sec angle"><div class="kw-h">Your angle · Dark Half</div><div class="kw-b">${p(angle)}</div></div>` : '') +
       linksHtml(it.links) +
       (it.unresolved ? `<div class="kw-unres">Open: ${esc(it.unresolved)}</div>` : '');
     const blob = (it.title + ' ' + (it.authors || '') + ' ' + gist + ' ' + (it.eli || '')).toLowerCase();
-    return `<details class="kw-card" data-lane="${esc(it.lane || 'other')}" data-rel="${it.relevance || 0}" data-search="${esc(blob)}"><summary>
-        <div class="kw-ct"><span class="kw-t">${esc(it.title)}</span>${conf}</div>
+    const fl = kflag(it.id);
+    return `<details class="kw-card${fl ? ' flagged' : ''}" data-lane="${esc(it.lane || 'other')}" data-rel="${it.relevance || 0}" data-flagged="${fl ? 1 : 0}" data-search="${esc(blob)}"><summary>
+        <div class="kw-ct"><span class="kw-t">${esc(it.title)}</span>${conf}<button class="kw-flag${fl ? ' on' : ''}" data-flag="${esc(it.id || '')}" aria-label="flag relevant">${fl ? '★' : '☆'}</button></div>
         ${it.authors ? `<div class="kw-by">${esc(it.authors)}</div>` : ''}
         ${gist ? `<div class="kw-gist">${esc(gist)}</div>` : ''}
       </summary><div class="kw-body">${body || '<p class="kw-thin">No detail yet.</p>'}</div></details>`;
   };
+  const sortFlagged = items => [...(items || [])].sort((a, b) => (kflag(b.id) ? 1 : 0) - (kflag(a.id) ? 1 : 0));
   const threadsHtml = (K.threads || []).map(th => `<div class="kw-thread">
       <div class="kw-th-h"><span class="kw-th-t">${esc(th.title)}</span>${th.tag ? `<span class="kw-th-tag">${esc(th.tag)}</span>` : ''}</div>
       ${th.synthesis ? `<div class="kw-syn">${esc(th.synthesis)}</div>` : ''}
-      <div class="kw-cards">${(th.items || []).map(kw).join('')}</div></div>`).join('');
+      <div class="kw-cards">${sortFlagged(th.items).map(kw).join('')}</div></div>`).join('');
   const capItemsHtml = (K.items || []).length ? `<div class="kw-thread"><div class="kw-th-h"><span class="kw-th-t">From your captures</span></div><div class="kw-cards">${(K.items || []).map(kw).join('')}</div></div>` : '';
   const introHtml = K.intro ? `<div class="kw-intro">${esc(K.intro)}</div>` : '';
   // Filter/search bar: makes 40+ items navigable. Chips per lane (with counts) + free-text + can't-miss.
@@ -948,6 +954,8 @@ function viewKnowledge() {
     .concat(LANE_ORDER.filter(l => laneCounts[l]).map(l => `<button class="kw-chip" data-lane="${l}">${LANE_LABEL[l]} · ${laneCounts[l]}</button>`));
   const cantMiss = allItems.filter(it => (it.relevance || 0) >= 3).length;
   if (cantMiss) chips.push(`<button class="kw-chip cm" data-lane="cantmiss">★ Can’t-miss · ${cantMiss}</button>`);
+  const flaggedN = allItems.filter(it => kflag(it.id)).length;
+  chips.push(`<button class="kw-chip flag" data-lane="flagged">⚑ Flagged · ${flaggedN}</button>`);
   const filterBar = allItems.length > 6 ? `<div class="kw-filter" id="kw-filter">
       <input id="kw-search" type="search" placeholder="Search papers, authors, ideas…" autocapitalize="off" spellcheck="false">
       <div class="kw-chips-row">${chips.join('')}</div></div>` : '';
@@ -997,7 +1005,8 @@ function viewKnowledge() {
     const threads = [...document.querySelectorAll('.kw-thread')];
     const apply = () => {
       cards.forEach(c => {
-        const okLane = lane === 'all' || (lane === 'cantmiss' ? (+c.dataset.rel >= 3) : c.dataset.lane === lane);
+        const okLane = lane === 'all' || (lane === 'cantmiss' ? (+c.dataset.rel >= 3)
+          : lane === 'flagged' ? (c.dataset.flagged === '1') : c.dataset.lane === lane);
         const okQ = !q || (c.dataset.search || '').includes(q);
         c.style.display = (okLane && okQ) ? '' : 'none';
       });
@@ -1013,6 +1022,12 @@ function viewKnowledge() {
     const si = document.getElementById('kw-search');
     if (si) si.oninput = () => { q = si.value.trim().toLowerCase(); apply(); };
   }
+  // Flag a research item as relevant (persists + syncs; floats it up; feeds deeper synthesis).
+  document.querySelectorAll('.kw-flag').forEach(b => b.onclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    const id = b.dataset.flag; if (!id) return;
+    saveState('kflag:' + id, !kflag(id));
+  });
   document.querySelectorAll('[data-capdel]').forEach(b => b.onclick = async () => { if (!confirm('Delete this capture?')) return; await deleteRow('captures', b.dataset.capdel); });
 }
 

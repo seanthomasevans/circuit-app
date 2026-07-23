@@ -623,6 +623,10 @@ nav.tabs a .tl{line-height:1;}
 .kw-card[open]>summary::after{content:"–";}
 .kw-ct{display:flex;align-items:center;gap:8px;padding-right:20px;}
 .kw-t{font-size:14.5px;font-weight:700;line-height:1.3;letter-spacing:-0.01em;}
+.kw-flag{margin-left:auto;flex:0 0 auto;background:none;border:none;font-size:19px;line-height:1;color:var(--faint);padding:0 2px;min-width:30px;min-height:30px;cursor:pointer;}
+.kw-flag.on{color:var(--red);}
+.kw-card.flagged{border-color:var(--red);box-shadow:inset 3px 0 0 var(--red);}
+.kw-chip.flag.on{background:var(--red);border-color:var(--red);color:#fff;}
 .kw-conf{font-size:9px;letter-spacing:0.06em;text-transform:uppercase;font-weight:700;padding:1px 5px;border-radius:3px;white-space:nowrap;}
 .kw-conf.c-high{color:#0a7d3c;background:#e7f5ec;}
 .kw-conf.c-medium{color:#8a6d00;background:#f6efd8;}
@@ -651,6 +655,8 @@ nav.tabs a .tl{line-height:1;}
 .kw-mp{font-size:13px;line-height:1.55;color:#3a3a3a;margin-top:6px;}
 .kw-sec.angle .kw-h{color:var(--red);}
 .kw-sec.angle{border-left:2px solid var(--red);padding-left:11px;margin-left:-13px;padding-left:11px;}
+.kw-clip{font-size:12.5px;line-height:1.5;color:#3a3a3a;padding:5px 0 5px 11px;border-left:2px solid var(--red);margin-top:6px;}
+.kw-clip-f{color:var(--faint);font-size:11px;}
 .kw-unres{font-size:11.5px;line-height:1.45;color:var(--faint);margin-top:12px;font-style:italic;}
 .kw-thin{font-size:12.5px;color:var(--faint);}
 .kw-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}
