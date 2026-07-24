@@ -623,6 +623,10 @@ nav.tabs a .tl{line-height:1;}
 .kw-card[open]>summary::after{content:"–";}
 .kw-ct{display:flex;align-items:center;gap:8px;padding-right:20px;}
 .kw-t{font-size:14.5px;font-weight:700;line-height:1.3;letter-spacing:-0.01em;}
+.kw-rel{flex:0 0 auto;width:8px;height:8px;border-radius:50%;margin-right:2px;}
+.kw-rel.r3{background:var(--red);}
+.kw-rel.r2{background:#d89a1e;}
+.kw-rel.r1{background:var(--line);}
 .kw-flag{margin-left:auto;flex:0 0 auto;background:none;border:none;font-size:19px;line-height:1;color:var(--faint);padding:0 2px;min-width:30px;min-height:30px;cursor:pointer;}
 .kw-flag.on{color:var(--red);}
 .kw-card.flagged{border-color:var(--red);box-shadow:inset 3px 0 0 var(--red);}

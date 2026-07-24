@@ -932,17 +932,20 @@ function viewKnowledge() {
       (it.unresolved ? `<div class="kw-unres">Open: ${esc(it.unresolved)}</div>` : '');
     const blob = (it.title + ' ' + (it.authors || '') + ' ' + gist + ' ' + (it.eli || '')).toLowerCase();
     const fl = kflag(it.id);
+    const rd = it.relevance ? `<span class="kw-rel r${it.relevance}" title="relevance ${it.relevance} of 3 to your objectives"></span>` : '';
     return `<details class="kw-card${fl ? ' flagged' : ''}" data-lane="${esc(it.lane || 'other')}" data-rel="${it.relevance || 0}" data-flagged="${fl ? 1 : 0}" data-search="${esc(blob)}"><summary>
-        <div class="kw-ct"><span class="kw-t">${esc(it.title)}</span>${conf}<button class="kw-flag${fl ? ' on' : ''}" data-flag="${esc(it.id || '')}" aria-label="flag relevant">${fl ? '★' : '☆'}</button></div>
+        <div class="kw-ct">${rd}<span class="kw-t">${esc(it.title)}</span>${conf}<button class="kw-flag${fl ? ' on' : ''}" data-flag="${esc(it.id || '')}" aria-label="flag relevant">${fl ? '★' : '☆'}</button></div>
         ${it.authors ? `<div class="kw-by">${esc(it.authors)}</div>` : ''}
         ${gist ? `<div class="kw-gist">${esc(gist)}</div>` : ''}
       </summary><div class="kw-body">${body || '<p class="kw-thin">No detail yet.</p>'}</div></details>`;
   };
-  const sortFlagged = items => [...(items || [])].sort((a, b) => (kflag(b.id) ? 1 : 0) - (kflag(a.id) ? 1 : 0));
+  // Triage sort: flagged first, then by relevance-to-Sean's-objectives (3=core … 0). Nothing dropped.
+  const sortTriage = items => [...(items || [])].sort((a, b) =>
+    ((kflag(b.id) ? 1 : 0) - (kflag(a.id) ? 1 : 0)) || ((b.relevance || 0) - (a.relevance || 0)));
   const threadsHtml = (K.threads || []).map(th => `<div class="kw-thread">
       <div class="kw-th-h"><span class="kw-th-t">${esc(th.title)}</span>${th.tag ? `<span class="kw-th-tag">${esc(th.tag)}</span>` : ''}</div>
       ${th.synthesis ? `<div class="kw-syn">${esc(th.synthesis)}</div>` : ''}
-      <div class="kw-cards">${sortFlagged(th.items).map(kw).join('')}</div></div>`).join('');
+      <div class="kw-cards">${sortTriage(th.items).map(kw).join('')}</div></div>`).join('');
   const capItemsHtml = (K.items || []).length ? `<div class="kw-thread"><div class="kw-th-h"><span class="kw-th-t">From your captures</span></div><div class="kw-cards">${(K.items || []).map(kw).join('')}</div></div>` : '';
   const introHtml = K.intro ? `<div class="kw-intro">${esc(K.intro)}</div>` : '';
   // Filter/search bar: makes 40+ items navigable. Chips per lane (with counts) + free-text + can't-miss.
