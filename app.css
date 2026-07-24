@@ -684,6 +684,10 @@ nav.tabs a .tl{line-height:1;}
 .kw-mp{font-size:13px;line-height:1.55;color:#3a3a3a;margin-top:6px;}
 .kw-sec.angle .kw-h{color:var(--red);}
 .kw-sec.angle{border-left:2px solid var(--red);padding-left:11px;margin-left:-13px;padding-left:11px;}
+.kw-slides{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 8px;-webkit-overflow-scrolling:touch;scroll-snap-type:x mandatory;}
+.kw-slide{flex:0 0 82%;max-width:340px;margin:0;scroll-snap-align:start;}
+.kw-slide img{width:100%;height:auto;display:block;border:1px solid var(--line);border-radius:8px;background:#fff;}
+.kw-slide figcaption{font-size:11px;color:var(--faint);margin-top:5px;line-height:1.35;}
 .kw-chart{margin-top:12px;}
 .kw-chart-svg{border:1px solid var(--line);border-radius:10px;padding:6px 8px;background:#fff;overflow:hidden;}
 .kw-chart-svg svg{width:100%;height:auto;display:block;}
