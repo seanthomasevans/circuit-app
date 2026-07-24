@@ -856,17 +856,72 @@ async function toggleTask(id) {
 /* ---------- Money (the financial model, its own module) ---------- */
 function viewMoney() {
   const B = DATA.budget || {};
+  const cur = esc(B.currency || 'CAD');
+  const rows = B.rows || [];
+  const total = B.total || 0, yours = B.your_cost || 0, covered = B.covered || 0;
+  const money = n => '$' + Math.round(n || 0).toLocaleString('en-US');
+  const pct = n => total ? Math.round((n / total) * 100) : 0;
+
+  // your spend, split paid vs still-to-spend + grouped by category
+  const mine = rows.filter(r => r.payer === 'Sean');
+  const myPaid = mine.filter(r => r.actual).reduce((s, r) => s + r.line, 0);
+  const myEst = Math.max(0, yours - myPaid);
+  const myCat = {};
+  mine.forEach(r => { const c = myCat[r.cat] || (myCat[r.cat] = { cat: r.cat, total: 0, paid: 0, notes: [] }); c.total += r.line; if (r.actual) c.paid += r.line; if (r.note) c.notes.push(r.note); });
+  const myCats = Object.values(myCat).sort((a, b) => b.total - a.total);
+  const myMax = Math.max(1, ...myCats.map(c => c.total));
+
+  // who covers the trip
+  const payers = (B.by_payer || []).slice().sort((a, b) => b.total - a.total);
+  const payMax = Math.max(1, ...payers.map(p => p.total));
+  const PAYNOTE = { Don: 'flights + hotel, paid', Sean: 'your spend', Rudy: 'one lunch, paid', 'Dark Half': 'conference pass' };
+
+  // cash in pocket, pulled from the Cash line note
+  const cashRow = rows.find(r => r.cat === 'Cash');
+  const cashM = cashRow && /(\$?\d+)\s*USD/i.exec(cashRow.note || '');
+  const cashLine = cashM ? `${cashM[1].replace(/^\$?/, '$')} USD in your pocket (${money(cashRow.line)} ${cur})` : '';
+
+  const payerBars = payers.filter(p => p.total > 0 || p.payer !== 'Dark Half').map(p =>
+    `<div class="mrow"><div class="ml">${esc(p.payer)}<span class="msub">${esc(PAYNOTE[p.payer] || '')}</span></div>
+     <div class="mbar"><i style="width:${Math.max(2, (p.total / payMax) * 100)}%;${p.payer === 'Sean' ? 'background:var(--red)' : ''}"></i></div>
+     <div class="mv">${money(p.total)}</div></div>`).join('');
+
+  const catBars = myCats.map(c => {
+    const done = c.paid >= c.total - 0.5;
+    return `<div class="mrow"><div class="ml">${esc(c.cat)}<span class="msub">${done ? 'paid' : 'estimate'}</span></div>
+     <div class="mbar"><i style="width:${Math.max(2, (c.total / myMax) * 100)}%;${done ? '' : 'background:var(--faint)'}"></i></div>
+     <div class="mv">${money(c.total)}</div></div>`;
+  }).join('');
+
   const body = `<div class="sec headview"><h2>What the trip costs</h2>
-    <div class="sec-label" style="margin:8px 0 0">Financial model</div>
-    <div class="bud-top">
-      <div class="bud-big"><div class="bud-k">Your out of pocket</div><div class="bud-v tnum">$${B.your_cost || 0}<span> ${esc(B.currency || 'CAD')}</span></div></div>
-      <div class="bud-cov">Covered <b class="tnum">$${B.covered || 0}</b>. Total trip <b class="tnum">$${B.total || 0}</b>.</div>
+    <div class="sec-label" style="margin:8px 0 0">Your money, and who covers the rest</div>
+
+    <div class="mhero">
+      <div class="mhero-k">Your out of pocket</div>
+      <div class="mhero-v tnum">${money(yours)}<span> ${cur}</span></div>
+      <div class="mhero-sub">Total trip ${money(total)}. Others cover ${money(covered)}, or ${pct(covered)}% of it.</div>
     </div>
-    <div class="bud-cats">${(B.by_cat || []).map(c => `<div class="bud-cat"><span>${esc(c.cat)}</span><span class="tnum">$${c.total}</span></div>`).join('')}</div>
-    <details class="brief" open><summary><span class="bs-t">Line items</span><span class="bs-i">+</span></summary><div class="bs-body">
-      ${(B.rows || []).map(r => `<div class="bud-row"><div class="br-l">${esc(r.label)}<span class="br-m">${esc(r.cat)} · ${esc(r.payer)}${r.qty > 1 ? ' · x' + r.qty : ''} · ${r.actual ? 'paid' : 'est'}${r.note ? ' · ' + esc(r.note) : ''}</span></div><div class="br-amt tnum">$${r.line}</div></div>`).join('')}
+
+    <div class="msplit">
+      <div class="you" style="flex:${yours || 1}"><b>You</b> ${pct(yours)}%</div>
+      <div class="cov" style="flex:${covered || 1}"><b>Covered</b> ${pct(covered)}%</div>
+    </div>
+
+    <div class="sec-label mgap">Who's covering it</div>
+    ${payerBars}
+
+    <div class="sec-label mgap">Your ${money(yours)}, broken down</div>
+    <div class="mpr">
+      <div class="p" style="flex:${myPaid || 0.01}">Spent ${money(myPaid)}</div>
+      <div class="r" style="flex:${myEst || 0.01}">Still to spend ${money(myEst)}</div>
+    </div>
+    ${cashLine ? `<div class="mcash">${esc(cashLine)}</div>` : ''}
+    ${catBars}
+
+    <details class="brief mgap"><summary><span class="bs-t">Every line item</span><span class="bs-i">+</span></summary><div class="bs-body">
+      ${rows.map(r => `<div class="bud-row"><div class="br-l">${esc(r.label)}<span class="br-m">${esc(r.cat)} · ${esc(r.payer)}${r.qty > 1 ? ' · x' + r.qty : ''} · ${r.actual ? 'paid' : 'est'}${r.note ? ' · ' + esc(r.note) : ''}</span></div><div class="br-amt tnum">${money(r.line)}</div></div>`).join('')}
     </div></details>
-    <div class="sec-sub" style="margin-top:10px">Paid = booked and settled. Everything else is a grounded estimate in ${esc(B.currency || 'CAD')}. To change a number, tell the Agent.</div></div>`;
+    <div class="sec-sub" style="margin-top:12px">Paid = booked and settled. Estimate = a grounded guess, not spent yet. All in ${cur}. To change a number, tell the Agent.</div></div>`;
   render(body);
   tickCountdown();
 }
@@ -925,6 +980,7 @@ function viewKnowledge() {
       sect('How it encodes geometry', p(it.representation)) +
       sect('Reasoning lens', p(it.reasoning_lens || it.reasoning_gap)) +
       sect('Results', p(it.results)) +
+      (it.chart ? `<div class="kw-sec kw-chart"><div class="kw-chart-svg">${it.chart.svg}</div>${it.chart.caption ? `<div class="kw-chart-cap">${esc(it.chart.caption)}</div>` : ''}</div>` : '') +
       ((it.clips && it.clips.length) ? `<div class="kw-sec"><div class="kw-h">Clip${it.clips.length > 1 ? 's' : ''} you filmed</div>${it.clips.map(c =>
         `<div class="kw-clip">${esc(c.motion_description || c.key_claim || c.title || '')}${c.file ? ` <span class="kw-clip-f">${esc(c.file)}</span>` : ''}</div>`).join('')}</div>` : '') +
       (angle ? `<div class="kw-sec angle"><div class="kw-h">Your angle · Dark Half</div><div class="kw-b">${p(angle)}</div></div>` : '') +

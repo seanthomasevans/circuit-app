@@ -26,7 +26,7 @@ button{font:inherit;cursor:pointer;}
 #gate .err{color:var(--red);font-size:13px;margin-top:10px;min-height:16px;}
 
 /* app frame */
-#app{min-height:100%;padding-bottom:calc(var(--tab-h) + env(safe-area-inset-bottom));}
+#app{min-height:100%;padding-bottom:calc(var(--tab-h) + env(safe-area-inset-bottom) + 78px);}
 .topbar{position:sticky;top:0;background:rgba(255,255,255,0.96);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-bottom:1px solid var(--line);z-index:20;}
 .topbar .wrap{display:flex;align-items:baseline;gap:12px;height:60px;}
 .topbar .b{font-size:26px;font-weight:700;letter-spacing:-0.02em;}
@@ -334,6 +334,31 @@ nav.tabs a.on{color:var(--red);}
 .br-l{font-size:14px;font-weight:600;}
 .br-m{display:block;font-size:12px;color:var(--faint);font-weight:400;margin-top:2px;}
 .br-amt{font-size:14px;font-weight:700;white-space:nowrap;}
+
+/* money view v2 */
+.mhero{margin:6px 0 16px;}
+.mhero-k{font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--red);font-weight:700;}
+.mhero-v{font-size:40px;font-weight:700;letter-spacing:-0.025em;margin:3px 0 6px;line-height:1;}
+.mhero-v span{font-size:15px;font-weight:400;color:var(--grey);letter-spacing:0;}
+.mhero-sub{font-size:14px;color:var(--grey);line-height:1.5;max-width:44ch;}
+.msplit{display:flex;height:38px;border-radius:9px;overflow:hidden;margin:2px 0 6px;}
+.msplit>div{display:flex;align-items:center;padding:0 12px;font-size:12px;color:#fff;white-space:nowrap;}
+.msplit .you{background:var(--red);}
+.msplit .cov{background:var(--ink);justify-content:flex-end;}
+.msplit b{font-weight:700;margin-right:5px;}
+.sec-label.mgap{margin-top:26px;border-top:2px solid var(--ink);padding-top:14px;}
+.mrow{display:grid;grid-template-columns:96px 1fr auto;gap:11px;align-items:center;padding:7px 2px;}
+.mrow .ml{font-size:13.5px;font-weight:600;line-height:1.2;}
+.mrow .msub{display:block;font-size:11px;color:var(--faint);font-weight:400;margin-top:1px;}
+.mrow .mv{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.mbar{height:9px;background:var(--wash);border-radius:5px;overflow:hidden;}
+.mbar>i{display:block;height:100%;background:var(--ink);border-radius:5px;}
+.mpr{display:flex;height:30px;border-radius:8px;overflow:hidden;margin:2px 0 4px;}
+.mpr>div{display:flex;align-items:center;padding:0 11px;font-size:11px;font-weight:700;white-space:nowrap;}
+.mpr .p{background:var(--ink);color:#fff;}
+.mpr .r{background:var(--wash);color:var(--grey);justify-content:flex-end;border:1px solid var(--line);border-left:none;}
+.mcash{font-size:12.5px;color:var(--grey);margin:4px 0 8px;padding-left:2px;}
+.mcash::before{content:"◆";color:var(--red);font-size:9px;margin-right:6px;vertical-align:1px;}
 
 /* ---------- edit forms in the sheet ---------- */
 .ef{margin-top:14px;}
@@ -659,6 +684,10 @@ nav.tabs a .tl{line-height:1;}
 .kw-mp{font-size:13px;line-height:1.55;color:#3a3a3a;margin-top:6px;}
 .kw-sec.angle .kw-h{color:var(--red);}
 .kw-sec.angle{border-left:2px solid var(--red);padding-left:11px;margin-left:-13px;padding-left:11px;}
+.kw-chart{margin-top:12px;}
+.kw-chart-svg{border:1px solid var(--line);border-radius:10px;padding:6px 8px;background:#fff;overflow:hidden;}
+.kw-chart-svg svg{width:100%;height:auto;display:block;}
+.kw-chart-cap{font-size:11.5px;color:var(--faint);margin-top:6px;padding-left:2px;}
 .kw-clip{font-size:12.5px;line-height:1.5;color:#3a3a3a;padding:5px 0 5px 11px;border-left:2px solid var(--red);margin-top:6px;}
 .kw-clip-f{color:var(--faint);font-size:11px;}
 .kw-unres{font-size:11.5px;line-height:1.45;color:var(--faint);margin-top:12px;font-style:italic;}
