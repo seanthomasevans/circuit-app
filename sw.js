@@ -1,4 +1,4 @@
-const V='circuit-cd90dc9b6e';const A=['./','./index.html','./app.css','./app.js','./config.js','./db.js','./data.js','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
+const V='circuit-b21da0ead6';const A=['./','./index.html','./app.css','./app.js','./config.js','./db.js','./data.js','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(V).then(c=>c.addAll(A)))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==V).map(x=>caches.delete(x)))).then(()=>self.clients.claim()))});
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;

@@ -577,8 +577,8 @@ function viewPeople() {
     const met = metState(c);
     const chips = (c.objectives || []).map(oid => { const o = objMap[oid]; return o ? `<span class="c-chip"><span class="obj-tag-n">${o.n}</span>${esc(o.short)}</span>` : ''; }).join('');
     return `<div class="card${met ? ' caught' : ''}" data-p="${esc(c.id)}">
-      <div class="c-top"><div class="c-name">${esc(c.name)}</div><button class="catch-btn${met ? ' on' : ''}" data-met="${esc(c.id)}">${met ? '✓ Caught' : 'Mark met'}</button></div>
-      <div class="c-role"><b>${esc(c.role || '')}</b>${c.company ? ' @ ' + esc(c.company) : ''}</div>
+      <div class="c-top"><div class="c-name">${esc(c.name)}${c.verified ? ' <span class="c-ok" title="verified">✓</span>' : ''}${(c.links && c.links.length) ? ` <span class="c-link-n">${c.links.length}🔗</span>` : ''}</div><button class="catch-btn${met ? ' on' : ''}" data-met="${esc(c.id)}">${met ? '✓ Caught' : 'Mark met'}</button></div>
+      <div class="c-role"><b>${esc(c.title || c.role || '')}</b>${c.company ? ' @ ' + esc(c.company) : ''}</div>
       ${chips ? `<div class="c-chips">${chips}</div>` : ''}
       ${c.opener ? `<div class="c-open">${esc(c.opener)}</div>` : ''}
       ${c.hook_confirmed === false && !met ? '<div class="c-warn">Hook unconfirmed · verify before leading with it.</div>' : ''}
@@ -823,13 +823,20 @@ function sheetPerson(id, keep) {
   sheetState = { kind: 'person', id };
   const objMap = objMapN();
   const chips = (c.objectives || []).map(oid => { const o = objMap[oid]; return o ? `<span class="sh-chip"><span class="obj-tag-n">${o.n}</span>${esc(o.short)}</span>` : ''; }).join('');
-  openSheet(`<div class="sh-kicker">${c.hook_confirmed ? 'Hook confirmed' : (c.status ? esc(c.status) : 'Contact')}</div>
-    <h3>${esc(c.name)}</h3>
-    <div class="meta">${esc(c.role || '')}${c.company ? ' · ' + esc(c.company) : ''}</div>
+  const links = (c.links || []).map(l => `<a class="sh-link" href="${esc(l.u)}" target="_blank" rel="noopener">${esc(l.l || 'Link')} ↗</a>`).join('');
+  openSheet(`<div class="sh-kicker">${c.verified ? 'Verified · ' : ''}${c.hook_confirmed ? 'Hook confirmed' : (c.status ? esc(c.status) : 'Contact')}</div>
+    <h3>${esc(c.name)}${c.verified ? ' <span class="sh-ok">✓</span>' : ''}</h3>
+    <div class="meta">${esc(c.title || c.role || '')}${c.company ? ' · ' + esc(c.company) : ''}</div>
+    ${c.email ? `<div class="sh-email"><a href="mailto:${esc(c.email)}">${esc(c.email)}</a></div>` : ''}
+    ${links ? `<div class="sh-links">${links}</div>` : ''}
     ${chips ? `<div class="sh-chips">${chips}</div>` : ''}
-    ${c.source ? `<div class="lbl">Where to find</div><div class="val">${esc(c.source)}</div>` : ''}
+    ${c.bio ? `<div class="lbl">Who they are</div><div class="val">${esc(c.bio)}</div>` : ''}
+    ${c.synergy ? `<div class="lbl">The angle</div><div class="val">${esc(c.synergy)}</div>` : ''}
+    ${c.followup ? `<div class="lbl">Follow up</div><div class="val">${esc(c.followup)}</div>` : ''}
+    ${c.source ? `<div class="lbl">Where you met</div><div class="val">${esc(c.source)}</div>` : ''}
     ${c.opener ? `<div class="lbl">Talking point</div><div class="val">${esc(c.opener)}</div>` : ''}
     ${c.notes ? `<div class="lbl">Notes</div><div class="val">${esc(c.notes)}</div>` : ''}
+    ${c.enrich_notes ? `<div class="lbl">To confirm</div><div class="val">${esc(c.enrich_notes)}</div>` : ''}
     ${c.hook_confirmed === false ? '<div class="warn">Hook unconfirmed, verify before leading with it.</div>' : ''}
     <div class="sh-hint">Need this changed? Tell the Agent.</div>`, keep);
 }

@@ -294,6 +294,14 @@ nav.tabs a.on{color:var(--red);}
 #sheet .quote{margin-top:14px;padding:12px 14px;background:var(--wash);border-left:3px solid var(--red);font-size:14px;line-height:1.55;}
 #sheet .lbl{font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);font-weight:600;margin-top:18px;}
 #sheet .val{font-size:14.5px;margin-top:5px;line-height:1.5;}
+.card .c-ok{color:var(--red);font-weight:800;font-size:13px;}
+.card .c-link-n{font-size:11px;color:var(--faint);font-weight:600;}
+#sheet .sh-ok{color:var(--red);font-weight:800;}
+#sheet .sh-email{margin-top:8px;font-size:14px;}
+#sheet .sh-email a{color:var(--red);text-decoration:none;font-weight:600;}
+#sheet .sh-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}
+#sheet .sh-link{font-size:12px;font-weight:600;padding:5px 10px;border:1px solid var(--line);border-radius:7px;color:var(--ink);text-decoration:none;background:var(--wash);}
+#sheet .sh-link:active{background:var(--line);}
 #sheet .sh-chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px;}
 #sheet .sh-chip{display:inline-block;font-size:11px;font-weight:600;letter-spacing:0.02em;padding:4px 9px;border:1px solid var(--ink);background:var(--paper);color:var(--ink);}
 #sheet .warn{margin-top:12px;font-size:12.5px;color:var(--red);font-weight:600;line-height:1.4;}
