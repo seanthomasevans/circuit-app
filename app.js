@@ -978,7 +978,11 @@ function viewKnowledge() {
     const gist = it.one_liner || it.innovation || it.key_claim || '';
     const conf = it.match_confidence ? `<span class="kw-conf c-${esc(it.match_confidence)}">${esc(it.match_confidence)}</span>` : '';
     const angle = it.sean_objective || it.sean_angle;
+    const slidesHtml = (it.slides && it.slides.length)
+      ? `<div class="kw-sec"><div class="kw-h">Slides you shot, cleaned up · ${it.slides.length}</div><div class="kw-slides">${it.slides.map(s => `<figure class="kw-slide"><img loading="lazy" src="${esc(s.img)}" alt="${esc(s.caption || '')}"><figcaption>${esc(s.caption || '')}</figcaption></figure>`).join('')}</div></div>`
+      : '';
     const body =
+      slidesHtml +
       (it.eli ? `<div class="kw-eli">${p(it.eli)}</div>` : '') +
       sect('The problem', p(it.problem)) +
       sect('How it works', p(it.method)) +
@@ -988,7 +992,6 @@ function viewKnowledge() {
       sect('Reasoning lens', p(it.reasoning_lens || it.reasoning_gap)) +
       sect('Results', p(it.results)) +
       (it.chart ? `<div class="kw-sec kw-chart"><div class="kw-chart-svg">${it.chart.svg}</div>${it.chart.caption ? `<div class="kw-chart-cap">${esc(it.chart.caption)}</div>` : ''}</div>` : '') +
-      ((it.slides && it.slides.length) ? `<div class="kw-sec"><div class="kw-h">Slides you shot, cleaned up</div><div class="kw-slides">${it.slides.map(s => `<figure class="kw-slide"><img loading="lazy" src="${esc(s.img)}" alt="${esc(s.caption || '')}"><figcaption>${esc(s.caption || '')}</figcaption></figure>`).join('')}</div></div>` : '') +
       ((it.clips && it.clips.length) ? `<div class="kw-sec"><div class="kw-h">Clip${it.clips.length > 1 ? 's' : ''} you filmed</div>${it.clips.map(c =>
         `<div class="kw-clip">${esc(c.motion_description || c.key_claim || c.title || '')}${c.file ? ` <span class="kw-clip-f">${esc(c.file)}</span>` : ''}</div>`).join('')}</div>` : '') +
       (angle ? `<div class="kw-sec angle"><div class="kw-h">Your angle · Dark Half</div><div class="kw-b">${p(angle)}</div></div>` : '') +
