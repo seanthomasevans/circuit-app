@@ -989,7 +989,6 @@ function viewKnowledge() {
       mathHtml(it.the_math) +
       sect("What's new", p(it.whats_new)) +
       sect('How it encodes geometry', p(it.representation)) +
-      sect('Reasoning lens', p(it.reasoning_lens || it.reasoning_gap)) +
       sect('Results', p(it.results)) +
       (it.chart ? `<div class="kw-sec kw-chart"><div class="kw-chart-svg">${it.chart.svg}</div>${it.chart.caption ? `<div class="kw-chart-cap">${esc(it.chart.caption)}</div>` : ''}</div>` : '') +
       ((it.clips && it.clips.length) ? `<div class="kw-sec"><div class="kw-h">Clip${it.clips.length > 1 ? 's' : ''} you filmed</div>${it.clips.map(c =>
