@@ -965,6 +965,7 @@ function viewKnowledge() {
     'series-episodic-pipelines': 'Series & episodic', 'agent-pipelines-workflows': 'Agent pipelines', 'other': 'Floor' };
   // Flag a research item as relevant → floats it up, filters to it, and queues it for deeper synthesis.
   const kflag = id => !!(DATA._state && DATA._state['kflag:' + id]);
+  const enhReq = id => !!(DATA._state && DATA._state['enhance:' + id]);
   const p = t => t ? `<p>${esc(t).replace(/\n+/g, '</p><p>')}</p>` : '';
   const sect = (label, body) => body ? `<div class="kw-sec"><div class="kw-h">${label}</div><div class="kw-b">${body}</div></div>` : '';
   const termsHtml = ts => (ts && ts.length) ? `<div class="kw-terms">${ts.map(t =>
@@ -998,11 +999,15 @@ function viewKnowledge() {
       (it.unresolved ? `<div class="kw-unres">Open: ${esc(it.unresolved)}</div>` : '');
     const blob = (it.title + ' ' + (it.authors || '') + ' ' + gist + ' ' + (it.eli || '')).toLowerCase();
     const fl = kflag(it.id);
+    const hasVis = !!((it.slides && it.slides.length) || it.chart);
+    const enh = enhReq(it.id);
+    const enhLabel = hasVis ? '✦ enhanced' : (enh ? '✦ queued' : '✦ enhance');
     const rd = it.relevance ? `<span class="kw-rel r${it.relevance}" title="relevance ${it.relevance} of 3 to your objectives"></span>` : '';
     return `<details class="kw-card${fl ? ' flagged' : ''}" data-lane="${esc(it.lane || 'other')}" data-rel="${it.relevance || 0}" data-flagged="${fl ? 1 : 0}" data-search="${esc(blob)}"><summary>
         <div class="kw-ct">${rd}<span class="kw-t">${esc(it.title)}</span>${conf}<button class="kw-flag${fl ? ' on' : ''}" data-flag="${esc(it.id || '')}" aria-label="flag relevant">${fl ? '★' : '☆'}</button></div>
         ${it.authors ? `<div class="kw-by">${esc(it.authors)}</div>` : ''}
         ${gist ? `<div class="kw-gist">${esc(gist)}</div>` : ''}
+        <button class="kw-enh${enh ? ' on' : ''}${hasVis ? ' done' : ''}" data-enh="${esc(it.id || '')}" aria-label="enhance visuals and context">${enhLabel}</button>
       </summary><div class="kw-body">${body || '<p class="kw-thin">No detail yet.</p>'}</div></details>`;
   };
   // Triage sort: flagged first, then by relevance-to-Sean's-objectives (3=core … 0). Nothing dropped.
@@ -1096,6 +1101,16 @@ function viewKnowledge() {
     e.preventDefault(); e.stopPropagation();
     const id = b.dataset.flag; if (!id) return;
     saveState('kflag:' + id, !kflag(id));
+  });
+  // Request enhancement: queues the item for the agent to run the KÖK BÖRÜ loop
+  // (perfect the visual assets, attach slides + fuller context, validate).
+  document.querySelectorAll('.kw-enh').forEach(b => b.onclick = e => {
+    e.preventDefault(); e.stopPropagation();
+    const id = b.dataset.enh; if (!id) return;
+    const now = !enhReq(id);
+    saveState('enhance:' + id, now);
+    b.classList.toggle('on', now);
+    if (!b.classList.contains('done')) b.textContent = now ? '✦ queued' : '✦ enhance';
   });
   document.querySelectorAll('[data-capdel]').forEach(b => b.onclick = async () => { if (!confirm('Delete this capture?')) return; await deleteRow('captures', b.dataset.capdel); });
 }

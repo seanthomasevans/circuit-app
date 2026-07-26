@@ -1,0 +1,46 @@
+[
+ {
+  "img": "media/editduet/IMG_2853.jpg",
+  "caption": "EditDuet: a multi-agent system for video non-linear editing"
+ },
+ {
+  "img": "media/editduet/IMG_2854.jpg",
+  "caption": "The B-roll editing task"
+ },
+ {
+  "img": "media/editduet/IMG_2855.jpg",
+  "caption": "The B-roll editing task"
+ },
+ {
+  "img": "media/editduet/IMG_2856.jpg",
+  "caption": "The B-roll editing task: output"
+ },
+ {
+  "img": "media/editduet/IMG_2857.jpg",
+  "caption": "Our solution: Editor and Critic agents"
+ },
+ {
+  "img": "media/editduet/IMG_2858.jpg",
+  "caption": "The video NLE environment"
+ },
+ {
+  "img": "media/editduet/IMG_2859.jpg",
+  "caption": "The Editor agent (search and place)"
+ },
+ {
+  "img": "media/editduet/IMG_2860.jpg",
+  "caption": "The Critic agent (review and feedback)"
+ },
+ {
+  "img": "media/editduet/IMG_2861.jpg",
+  "caption": "Qualitative results: Editor-Critic interaction"
+ },
+ {
+  "img": "media/editduet/IMG_2862.jpg",
+  "caption": "Qualitative results: Critic feedback"
+ },
+ {
+  "img": "media/editduet/IMG_2863.jpg",
+  "caption": "Effective multi-agent communication"
+ }
+]

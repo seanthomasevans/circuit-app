@@ -661,6 +661,10 @@ nav.tabs a .tl{line-height:1;}
 .kw-rel.r2{background:#d89a1e;}
 .kw-rel.r1{background:var(--line);}
 .kw-flag{margin-left:auto;flex:0 0 auto;background:none;border:none;font-size:19px;line-height:1;color:var(--faint);padding:0 2px;min-width:30px;min-height:30px;cursor:pointer;}
+.kw-enh{margin-top:9px;display:inline-block;background:none;border:1px solid var(--line);border-radius:7px;color:var(--grey);font-size:11px;font-weight:600;letter-spacing:0.02em;padding:5px 10px;cursor:pointer;}
+.kw-enh.on{border-color:var(--red);color:var(--red);}
+.kw-enh.done{border-color:var(--line);color:var(--faint);}
+.kw-enh:active{background:var(--wash);}
 .kw-flag.on{color:var(--red);}
 .kw-card.flagged{border-color:var(--red);box-shadow:inset 3px 0 0 var(--red);}
 .kw-chip.flag.on{background:var(--red);border-color:var(--red);color:#fff;}
