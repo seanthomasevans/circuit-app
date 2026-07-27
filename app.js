@@ -45,6 +45,18 @@ const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov
 const toMin = t => { if (!t) return null; const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 const nowMin = () => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); };
 const todayISO = () => { const n = new Date(); return n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0') + '-' + String(n.getDate()).padStart(2,'0'); };
+// Event lifecycle: Circuit captures an event cycle. Phase drives whether the app is prepping,
+// on the ground, or (once the event ends) a follow-up + synthesis engine.
+function eventPhase() {
+  const ev = DATA.event || {}, dp = DATA.dayplan || {};
+  const startISO = ev.arrive || ev.start || (dp.days && dp.days[0] && dp.days[0].date);
+  const endISO = ev.end || ev.start || (dp.days && dp.days.length && dp.days[dp.days.length - 1].date);
+  const start = new Date(startISO + 'T00:00:00'), end = new Date(endISO + 'T23:59:59'), now = new Date();
+  if (isNaN(start) || isNaN(end)) return { phase: 'during', days: 0 };
+  if (now < start) return { phase: 'before', days: Math.ceil((start - now) / 86400000) };
+  if (now > end) return { phase: 'after', days: Math.floor((now - end) / 86400000) };
+  return { phase: 'during', days: Math.floor((now - start) / 86400000) + 1 };
+}
 const shortDate = iso => { const p = iso.split('-'); return MONTHS[+p[1]-1] + ' ' + (+p[2]); };
 
 /* ---------- budget engine (JS port of circuit/models.compute_budget) ---------- */
@@ -999,15 +1011,20 @@ function viewKnowledge() {
       (it.unresolved ? `<div class="kw-unres">Open: ${esc(it.unresolved)}</div>` : '');
     const blob = (it.title + ' ' + (it.authors || '') + ' ' + gist + ' ' + (it.eli || '')).toLowerCase();
     const fl = kflag(it.id);
-    const hasVis = !!((it.slides && it.slides.length) || it.chart);
+    const slidesN = (it.slides && it.slides.length) || 0;
+    const hasVis = !!(slidesN || it.chart);
+    const paperUrl = (it.links || []).map(l => l.u || '').find(u => /arxiv|github|conference-schedule|publications|\.io|\.world|\.ai/.test(u));
     const enh = enhReq(it.id);
     const enhLabel = hasVis ? '✦ enhanced' : (enh ? '✦ queued' : '✦ enhance');
+    const enhCap = hasVis
+      ? [slidesN ? slidesN + ' slide' + (slidesN > 1 ? 's' : '') : '', it.chart ? 'chart' : '', paperUrl ? 'paper linked' : ''].filter(Boolean).join(' · ')
+      : (enh ? "Queued. The agent will match your captured slides, fetch the paper, and attach figures." : '');
     const rd = it.relevance ? `<span class="kw-rel r${it.relevance}" title="relevance ${it.relevance} of 3 to your objectives"></span>` : '';
     return `<details class="kw-card${fl ? ' flagged' : ''}" data-lane="${esc(it.lane || 'other')}" data-rel="${it.relevance || 0}" data-flagged="${fl ? 1 : 0}" data-search="${esc(blob)}"><summary>
         <div class="kw-ct">${rd}<span class="kw-t">${esc(it.title)}</span>${conf}<button class="kw-flag${fl ? ' on' : ''}" data-flag="${esc(it.id || '')}" aria-label="flag relevant">${fl ? '★' : '☆'}</button></div>
         ${it.authors ? `<div class="kw-by">${esc(it.authors)}</div>` : ''}
         ${gist ? `<div class="kw-gist">${esc(gist)}</div>` : ''}
-        <button class="kw-enh${enh ? ' on' : ''}${hasVis ? ' done' : ''}" data-enh="${esc(it.id || '')}" aria-label="enhance visuals and context">${enhLabel}</button>
+        <div class="kw-enh-row"><button class="kw-enh${enh ? ' on' : ''}${hasVis ? ' done' : ''}" data-enh="${esc(it.id || '')}" title="Queue for enhancement: match your captured slides, fetch the paper, and attach figures">${enhLabel}</button><span class="kw-enh-cap">${esc(enhCap)}</span></div>
       </summary><div class="kw-body">${body || '<p class="kw-thin">No detail yet.</p>'}</div></details>`;
   };
   // Triage sort: flagged first, then by relevance-to-Sean's-objectives (3=core … 0). Nothing dropped.
@@ -1110,7 +1127,11 @@ function viewKnowledge() {
     const now = !enhReq(id);
     saveState('enhance:' + id, now);
     b.classList.toggle('on', now);
-    if (!b.classList.contains('done')) b.textContent = now ? '✦ queued' : '✦ enhance';
+    const cap = b.parentElement.querySelector('.kw-enh-cap');
+    if (!b.classList.contains('done')) {
+      b.textContent = now ? '✦ queued' : '✦ enhance';
+      if (cap) cap.textContent = now ? "Queued. The agent will match your captured slides, fetch the paper, and attach figures." : '';
+    }
   });
   document.querySelectorAll('[data-capdel]').forEach(b => b.onclick = async () => { if (!confirm('Delete this capture?')) return; await deleteRow('captures', b.dataset.capdel); });
 }
