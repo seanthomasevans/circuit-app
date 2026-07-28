@@ -592,7 +592,7 @@ function viewSchedule() {
     }).join('') + '</div>').join('') || '<div class="empty">Nothing matches these filters.</div>';
 
   render(masthead() + hall +
-    `<div class="sec"><div class="sec-label">Program</div><h2>The full schedule</h2>
+    `<div class="sec"><div class="sec-label">Program</div><h2>${eventPhase().phase === 'after' ? 'The program (recap)' : 'The full schedule'}</h2>
       <div class="sec-sub">${list.length} of ${prog.length} sessions</div>
       <div class="chips" style="margin-top:14px">${dayChips}</div>
       <div class="chips">${starChip}${objChips}</div>
@@ -621,31 +621,40 @@ function viewPeople() {
   const C = DATA.contacts, objs = DATA.objectives || [];
   const objMap = objMapN();
   const objChips = objs.map((o, i) => `<button class="chip obj ${ppFilter.obj === o.id ? 'on' : ''}" data-f="obj" data-v="${o.id}"><span class="obj-tag-n">${i + 1}</span>${esc(o.short)}</button>`).join('');
+  const post = eventPhase().phase === 'after';
   const total = C.length, caught = C.filter(metState).length, pct = total ? Math.round(caught / total * 100) : 0;
-  const list = C.filter(c => ppFilter.obj === 'all' || (c.objectives || []).includes(ppFilter.obj))
-    .slice().sort((a, b) => (metState(a) ? 1 : 0) - (metState(b) ? 1 : 0));  // targets first, caught sink
+  const fscore = c => (metState(c) ? 4 : 0) + (c.verified ? 2 : 0) + ((c.links && c.links.length) ? 1 : 0) + ((c.tags || []).some(t => /urgent/i.test(t)) ? 3 : 0);
+  const list = C.filter(c => ppFilter.obj === 'all' || (c.objectives || []).includes(ppFilter.obj)).slice()
+    .sort(post ? (a, b) => fscore(b) - fscore(a)                       // post-event: follow-up priority
+               : (a, b) => (metState(a) ? 1 : 0) - (metState(b) ? 1 : 0));  // during: targets first
   const cards = list.map(c => {
     const met = metState(c);
     const chips = (c.objectives || []).map(oid => { const o = objMap[oid]; return o ? `<span class="c-chip"><span class="obj-tag-n">${o.n}</span>${esc(o.short)}</span>` : ''; }).join('');
     return `<div class="card${met ? ' caught' : ''}" data-p="${esc(c.id)}">
-      <div class="c-top"><div class="c-name">${esc(c.name)}${c.verified ? ' <span class="c-ok" title="verified">✓</span>' : ''}${(c.links && c.links.length) ? ` <span class="c-link-n">${c.links.length}🔗</span>` : ''}</div><button class="catch-btn${met ? ' on' : ''}" data-met="${esc(c.id)}">${met ? '✓ Caught' : 'Mark met'}</button></div>
+      <div class="c-top"><div class="c-name">${esc(c.name)}${c.verified ? ' <span class="c-ok" title="verified">✓</span>' : ''}${(c.links && c.links.length) ? ` <span class="c-link-n">${c.links.length}🔗</span>` : ''}</div><button class="catch-btn${met ? ' on' : ''}" data-met="${esc(c.id)}">${met ? '✓ Met' : 'Mark met'}</button></div>
       <div class="c-role"><b>${esc(c.title || c.role || '')}</b>${c.company ? ' @ ' + esc(c.company) : ''}</div>
       ${chips ? `<div class="c-chips">${chips}</div>` : ''}
-      ${c.opener ? `<div class="c-open">${esc(c.opener)}</div>` : ''}
-      ${c.hook_confirmed === false && !met ? '<div class="c-warn">Hook unconfirmed · verify before leading with it.</div>' : ''}
-      ${met ? `<button class="send-btn" data-send="${esc(c.id)}">Send them something fun ↗</button>` : ''}
+      ${post && c.followup ? `<div class="c-follow">${esc(c.followup)}</div>` : (c.opener ? `<div class="c-open">${esc(c.opener)}</div>` : '')}
+      ${post && c.email ? `<a class="c-mail" href="mailto:${esc(c.email)}" onclick="event.stopPropagation()">${esc(c.email)}</a>` : ''}
+      ${!post && c.hook_confirmed === false && !met ? '<div class="c-warn">Hook unconfirmed · verify before leading with it.</div>' : ''}
+      ${met ? `<button class="send-btn" data-send="${esc(c.id)}">Draft a follow-up ↗</button>` : ''}
     </div>`;
   }).join('') || '<div class="empty">No one here.</div>';
 
-  render(masthead() +
-    `<div class="sec"><div class="sec-label">The hunt</div><h2>People</h2>
-      <div class="hunt">
-        <div class="hunt-top"><div class="hunt-score tnum">${caught}<span> / ${total} caught</span></div><div class="hunt-pts tnum">${caught * 10} pts</div></div>
-        <div class="hunt-bar"><i style="width:${pct}%"></i></div>
-        <div class="hunt-sub">${caught === total && total ? 'Full house. You cornered everyone.' : (total - caught) + ' still in the wild. Tap Mark met the moment you shake their hand.'}</div>
-      </div>
-      <div class="chips" style="margin-top:14px">${objChips}</div>
-      <div class="people">${cards}</div></div>`);
+  const head = post
+    ? `<div class="sec"><div class="sec-label">Follow-up</div><h2>People</h2>
+        <div class="sec-sub">You met ${caught} of ${total}. Reach out, highest-value first. Each card has the next action and a draft.</div>
+        <div class="chips" style="margin-top:14px">${objChips}</div>
+        <div class="people">${cards}</div></div>`
+    : `<div class="sec"><div class="sec-label">The hunt</div><h2>People</h2>
+        <div class="hunt">
+          <div class="hunt-top"><div class="hunt-score tnum">${caught}<span> / ${total} caught</span></div><div class="hunt-pts tnum">${caught * 10} pts</div></div>
+          <div class="hunt-bar"><i style="width:${pct}%"></i></div>
+          <div class="hunt-sub">${caught === total && total ? 'Full house. You cornered everyone.' : (total - caught) + ' still in the wild. Tap Mark met the moment you shake their hand.'}</div>
+        </div>
+        <div class="chips" style="margin-top:14px">${objChips}</div>
+        <div class="people">${cards}</div></div>`;
+  render(masthead() + head);
 
   tickCountdown();
   document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { ppFilter.obj = ppFilter.obj === b.dataset.v ? 'all' : b.dataset.v; viewPeople(); });
@@ -951,8 +960,10 @@ function viewMoney() {
      <div class="mv">${money(c.total)}</div></div>`;
   }).join('');
 
-  const body = `<div class="sec headview"><h2>What the trip costs</h2>
+  const post = eventPhase().phase === 'after';
+  const body = `<div class="sec headview"><h2>What the trip ${post ? 'cost' : 'costs'}</h2>
     <div class="sec-label" style="margin:8px 0 0">Your money, and who covers the rest</div>
+    ${post ? '<div class="mnote">Estimates, not actuals. Food ran higher than the estimate. Upload a card statement to reconcile.</div>' : ''}
 
     <div class="mhero">
       <div class="mhero-k">Your out of pocket</div>
