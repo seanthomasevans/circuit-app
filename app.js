@@ -226,10 +226,11 @@ function start() {
   route();
 }
 function setCtx() {
-  const arrive = DATA.event?.arrive || DATA.dayplan?.days?.[0]?.date;
-  if (!arrive) return;
-  const days = Math.ceil((new Date(arrive + 'T09:00') - new Date()) / 86400000);
-  $('#ctx').textContent = days > 0 ? 'Arrival in ' + days + (days === 1 ? ' day' : ' days') : (DATA.event?.name || '');
+  const el = $('#ctx'); if (!el) return;
+  const { phase, days } = eventPhase();
+  el.textContent = phase === 'before' ? 'Arrival in ' + days + (days === 1 ? ' day' : ' days')
+    : phase === 'during' ? 'Day ' + days + ' on the ground'
+    : days + ' day' + (days === 1 ? '' : 's') + ' after · follow-up';
 }
 
 /* ---------- router ---------- */
@@ -311,21 +312,30 @@ function masthead() {
   const badge = b.length >= 4
     ? `<div class="badge-line">Badge <span class="sep">·</span> <b>${esc(b[0])}</b><span class="sep">/</span>${esc(b[1])}<span class="sep">/</span>${esc(b[2])}<span class="sep">/</span>${esc(b[3])}</div>`
     : '';
-  return `<div class="mast">
-    <div class="kicker">Circuit · trip brief</div>
+  const ph = eventPhase();
+  const kicker = ph.phase === 'before' ? 'Circuit · trip brief' : ph.phase === 'during' ? 'Circuit · on the ground' : 'Circuit · follow-up';
+  const cdk = ph.phase === 'before' ? 'Arrival in' : ph.phase === 'during' ? 'On the ground' : 'Event';
+  return `<div class="mast${ph.phase === 'after' ? ' post' : ''}">
+    <div class="kicker">${kicker}</div>
     <div class="title">${esc(ev.name || 'Event')}<span>.</span></div>
     <p class="tagline">${esc(ev.tagline || '')}</p>
     <div class="mast-meta">${span ? '<strong>' + esc(span) + '</strong>' : ''}<span>${esc(ev.location || '')}</span></div>
-    <div class="count"><span class="cd-k">Arrival in</span><span class="cd-v tnum" id="cd">···</span></div>
+    <div class="count"><span class="cd-k">${cdk}</span><span class="cd-v tnum" id="cd">···</span></div>
     ${badge}</div>`;
 }
 function tickCountdown() {
   const cd = $('#cd'); if (!cd) return;
-  const arrive = new Date((DATA.event?.arrive || DATA.dayplan?.days?.[0]?.date) + 'T09:00:00');
-  const ms = arrive - new Date();
-  if (ms <= 0) { cd.innerHTML = 'On the ground <span>trip underway</span>'; return; }
-  const d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000), m = Math.floor((ms % 3600000) / 60000);
-  cd.innerHTML = d + '<span>days</span> ' + h + '<span>hr</span> ' + m + '<span>min</span>';
+  const { phase, days } = eventPhase();
+  if (phase === 'before') {
+    const arrive = new Date((DATA.event?.arrive || DATA.dayplan?.days?.[0]?.date) + 'T09:00:00');
+    const ms = arrive - new Date();
+    const d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000), m = Math.floor((ms % 3600000) / 60000);
+    cd.innerHTML = d + '<span>days</span> ' + h + '<span>hr</span> ' + m + '<span>min</span>';
+  } else if (phase === 'during') {
+    cd.innerHTML = 'Day ' + days + ' <span>underway</span>';
+  } else {
+    cd.innerHTML = 'Wrapped <span>' + days + ' day' + (days === 1 ? '' : 's') + ' ago · follow-up mode</span>';
+  }
 }
 
 /* ---------- Objectives (the trip's five goals, clearly named) ---------- */
@@ -366,7 +376,36 @@ function bindTaskRows() {
   document.querySelectorAll('[data-tedit]').forEach(b => b.onclick = () => sheetTask(b.dataset.tedit));
 }
 
+// Once the event's over, Today stops being a run-of-show and becomes the follow-up desk:
+// who to reach (highest-value first, with the next action), what's left to do, what to mine.
+function renderPostEvent() {
+  const open = (DATA.tasks || []).filter(t => !taskDone(t))
+    .sort((a, b) => (a.priority === 'high' ? 0 : 1) - (b.priority === 'high' ? 0 : 1) || (a.due || '').localeCompare(b.due || ''));
+  const score = c => (metState(c) ? 4 : 0) + (c.verified ? 2 : 0) + ((c.links && c.links.length) ? 1 : 0) + ((c.tags || []).some(t => /urgent/i.test(t)) ? 3 : 0);
+  const follow = (DATA.contacts || []).filter(c => metState(c) || c.followup || c.status === 'met').sort((a, b) => score(b) - score(a));
+  const followHtml = follow.slice(0, 10).map(c => `<div class="pe-c" data-p="${esc(c.id)}">
+    <div class="pe-c-n">${esc(c.name)}${c.verified ? ' <span class="c-ok">✓</span>' : ''}<span class="pe-c-co">${esc(c.title || c.role || '')}${c.company ? ' · ' + esc(c.company) : ''}</span></div>
+    ${c.followup ? `<div class="pe-c-f">${esc(c.followup)}</div>` : ''}
+    ${c.email ? `<a class="pe-c-mail" href="mailto:${esc(c.email)}" onclick="event.stopPropagation()">${esc(c.email)}</a>` : ''}</div>`).join('');
+  const kN = ((DATA.knowledge && DATA.knowledge.threads) || []).reduce((n, th) => n + (th.items || []).length, 0);
+  const body = masthead() +
+    `<div class="sec headview"><div class="sec-label">The event is over. Here is what is left.</div>
+      <div class="pe-grid">
+        <div class="pe-stat"><b class="tnum">${open.length}</b><span>open to-dos</span></div>
+        <div class="pe-stat"><b class="tnum">${follow.length}</b><span>people to reach</span></div>
+        <div class="pe-stat"><b class="tnum">${kN}</b><span>talks to mine</span></div>
+      </div></div>` +
+    `<div class="sec"><h2>Follow up</h2><div class="sec-sub">Who you met, highest-value first. Tap for the thread and a drafted note.</div>
+      <div class="pe-list">${followHtml || '<div class="h-empty">No contacts logged.</div>'}</div></div>` +
+    `<div class="sec"><h2>What is left to do</h2>${open.length ? open.map(t => taskRowHtml(t)).join('') : '<div class="h-empty">Nothing open.</div>'}</div>`;
+  render(body);
+  tickCountdown();
+  bindTaskRows();
+  document.querySelectorAll('.pe-c[data-p]').forEach(el => el.onclick = () => sheetPerson(el.dataset.p));
+}
+
 function viewToday() {
+  if (eventPhase().phase === 'after') { renderPostEvent(); return; }
   const days = DATA.dayplan.days, tISO = todayISO();
   if (curDay == null) { const i = days.findIndex(d => d.date >= tISO); curDay = i < 0 ? 0 : i; }
   const d = days[curDay], meta = DATA.dayplan.meta || {};
@@ -722,7 +761,7 @@ function viewPrep() {
   const open = (DATA.tasks || []).filter(t => !taskDone(t))
     .sort((a, b) => (a.priority === 'high' ? 0 : 1) - (b.priority === 'high' ? 0 : 1) || (a.due || '').localeCompare(b.due || ''));
   const doneTasks = (DATA.tasks || []).filter(t => taskDone(t));
-  const tasksHtml = `<div class="sec"><h2>Before the floor opens</h2>
+  const tasksHtml = `<div class="sec"><h2>${eventPhase().phase === 'after' ? 'Loose ends' : 'Before the floor opens'}</h2>
     <div class="sec-label" style="margin:8px 0 0">Tasks</div>
     <div class="handle" style="margin-top:10px">
       ${open.length ? open.map(t => taskRowHtml(t)).join('') : '<div class="h-empty">Nothing open.</div>'}
