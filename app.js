@@ -1052,6 +1052,9 @@ function viewKnowledge() {
     const _p = activeP();
     const angle = _p.id === 'sean' ? (it.sean_objective || it.sean_angle)
       : ((it.lens && it.lens[_p.id] && it.lens[_p.id].angle) || '');
+    const readyChip = it.readiness ? `<span class="kw-ready">${esc(it.readiness)}</span>` : '';
+    const _tsec = it.sectors ? Object.entries(it.sectors).filter(([s, w]) => w >= 2).sort((a, b) => b[1] - a[1]).map(([s]) => s).slice(0, 4) : [];
+    const sectorsLine = _tsec.length ? `<div class="kw-sectors">${_tsec.map(s => esc(s)).join(' · ')}</div>` : '';
     const slidesHtml = (it.slides && it.slides.length)
       ? `<div class="kw-sec"><div class="kw-h">Slides you shot, cleaned up · ${it.slides.length}</div><div class="kw-slides">${it.slides.map(s => `<figure class="kw-slide"><img loading="lazy" src="${esc(s.img)}" alt="${esc(s.caption || '')}"><figcaption>${esc(s.caption || '')}</figcaption></figure>`).join('')}</div></div>`
       : '';
@@ -1082,7 +1085,8 @@ function viewKnowledge() {
       : (enh ? "Queued. The agent will match your captured slides, fetch the paper, and attach figures." : '');
     const rd = it.relevance ? `<span class="kw-rel r${it.relevance}" title="relevance ${it.relevance} of 3 to your objectives"></span>` : '';
     return `<details class="kw-card${fl ? ' flagged' : ''}" data-lane="${esc(it.lane || 'other')}" data-rel="${it.relevance || 0}" data-flagged="${fl ? 1 : 0}" data-search="${esc(blob)}"><summary>
-        <div class="kw-ct">${rd}<span class="kw-t">${esc(it.title)}</span>${conf}<button class="kw-flag${fl ? ' on' : ''}" data-flag="${esc(it.id || '')}" aria-label="flag relevant">${fl ? '★' : '☆'}</button></div>
+        <div class="kw-ct">${rd}<span class="kw-t">${esc(it.title)}</span>${conf}${readyChip}<button class="kw-flag${fl ? ' on' : ''}" data-flag="${esc(it.id || '')}" aria-label="flag relevant">${fl ? '★' : '☆'}</button></div>
+        ${sectorsLine}
         ${it.authors ? `<div class="kw-by">${esc(it.authors)}</div>` : ''}
         ${gist ? `<div class="kw-gist">${esc(gist)}</div>` : ''}
         <div class="kw-enh-row"><button class="kw-enh${enh ? ' on' : ''}${hasVis ? ' done' : ''}" data-enh="${esc(it.id || '')}" title="Queue for enhancement: match your captured slides, fetch the paper, and attach figures">${enhLabel}</button><span class="kw-enh-cap">${esc(enhCap)}</span></div>

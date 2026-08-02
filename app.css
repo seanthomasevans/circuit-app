@@ -695,6 +695,8 @@ nav.tabs a .tl{line-height:1;}
 .kw-card.flagged{border-color:var(--red);box-shadow:inset 3px 0 0 var(--red);}
 .kw-chip.flag.on{background:var(--red);border-color:var(--red);color:#fff;}
 .kw-conf{font-size:9px;letter-spacing:0.06em;text-transform:uppercase;font-weight:700;padding:1px 5px;border-radius:3px;white-space:nowrap;}
+.kw-ready{font-size:9px;letter-spacing:0.04em;text-transform:uppercase;font-weight:700;padding:1px 6px;border-radius:3px;white-space:nowrap;background:#eef6ee;color:#2f6b3a;border:1px solid #cfe6d3;}
+.kw-sectors{margin-top:5px;font-size:11px;color:var(--faint);letter-spacing:0.02em;text-transform:capitalize;}
 .kw-conf.c-high{color:#0a7d3c;background:#e7f5ec;}
 .kw-conf.c-medium{color:#8a6d00;background:#f6efd8;}
 .kw-conf.c-low{color:var(--faint);background:var(--wash);}
