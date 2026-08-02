@@ -664,6 +664,14 @@ nav.tabs a .tl{line-height:1;}
 .kw-rel.r2{background:#d89a1e;}
 .kw-rel.r1{background:var(--line);}
 .kw-flag{margin-left:auto;flex:0 0 auto;background:none;border:none;font-size:19px;line-height:1;color:var(--faint);padding:0 2px;min-width:30px;min-height:30px;cursor:pointer;}
+/* persona switcher: whose lens the knowledge reads through */
+.persona-sw{display:flex;gap:8px;margin-top:14px;}
+.psw-b{flex:1;background:none;border:1px solid var(--line);border-radius:9px;padding:9px 11px;text-align:left;cursor:pointer;color:var(--grey);}
+.psw-b span{display:block;font-size:10.5px;color:var(--faint);margin-top:2px;letter-spacing:0.01em;}
+.psw-b{font-size:14px;font-weight:700;color:var(--ink);}
+.psw-b.on{border-color:var(--red);}
+.psw-b.on span{color:var(--red);}
+.psw-b:active{background:var(--wash);}
 /* post-event Today: the follow-up desk */
 .pe-grid{display:flex;gap:10px;margin:4px 0 4px;}
 .pe-stat{flex:1;border:1px solid var(--line);border-radius:10px;padding:12px 10px;text-align:center;}

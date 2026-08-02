@@ -257,6 +257,15 @@ function rerender() {
   window.scrollTo(0, y);
 }
 function render(h) { $('#view').innerHTML = h; }
+// Active persona: whose lens the knowledge is read through. Sean's creative-technologist
+// practice (gen-AI, agentic, immersive) or Les's seven-sector digital-industries view.
+let activePersona = (localStorage.getItem('activePersona')) || 'sean';
+function activeP() { return (DATA.personas || []).find(p => p.id === activePersona) || { id: 'sean', name: 'Sean', tagline: 'creative technologist' }; }
+function personaSwitcher() {
+  const ps = DATA.personas || [];
+  if (ps.length < 2) return '';
+  return `<div class="persona-sw">${ps.map(p => `<button class="psw-b${p.id === activePersona ? ' on' : ''}" data-persona="${esc(p.id)}">${esc(p.name.split(' ')[0])}<span>${esc(p.tagline)}</span></button>`).join('')}</div>`;
+}
 
 /* ---------- DB write helpers (optimistic: write, re-merge from cache, re-render) ---------- */
 async function saveRow(table, row) {
@@ -1040,7 +1049,9 @@ function viewKnowledge() {
   const kw = it => {
     const gist = it.one_liner || it.innovation || it.key_claim || '';
     const conf = it.match_confidence ? `<span class="kw-conf c-${esc(it.match_confidence)}">${esc(it.match_confidence)}</span>` : '';
-    const angle = it.sean_objective || it.sean_angle;
+    const _p = activeP();
+    const angle = _p.id === 'sean' ? (it.sean_objective || it.sean_angle)
+      : ((it.lens && it.lens[_p.id] && it.lens[_p.id].angle) || '');
     const slidesHtml = (it.slides && it.slides.length)
       ? `<div class="kw-sec"><div class="kw-h">Slides you shot, cleaned up · ${it.slides.length}</div><div class="kw-slides">${it.slides.map(s => `<figure class="kw-slide"><img loading="lazy" src="${esc(s.img)}" alt="${esc(s.caption || '')}"><figcaption>${esc(s.caption || '')}</figcaption></figure>`).join('')}</div></div>`
       : '';
@@ -1056,7 +1067,7 @@ function viewKnowledge() {
       (it.chart ? `<div class="kw-sec kw-chart"><div class="kw-chart-svg">${it.chart.svg}</div>${it.chart.caption ? `<div class="kw-chart-cap">${esc(it.chart.caption)}</div>` : ''}</div>` : '') +
       ((it.clips && it.clips.length) ? `<div class="kw-sec"><div class="kw-h">Clip${it.clips.length > 1 ? 's' : ''} you filmed</div>${it.clips.map(c =>
         `<div class="kw-clip">${esc(c.motion_description || c.key_claim || c.title || '')}${c.file ? ` <span class="kw-clip-f">${esc(c.file)}</span>` : ''}</div>`).join('')}</div>` : '') +
-      (angle ? `<div class="kw-sec angle"><div class="kw-h">Your angle · Dark Half</div><div class="kw-b">${p(angle)}</div></div>` : '') +
+      (angle ? `<div class="kw-sec angle"><div class="kw-h">${_p.id === 'sean' ? 'Through your lens' : "Through " + esc(_p.name) + "'s lens"} · ${esc(_p.tagline || '')}</div><div class="kw-b">${p(angle)}</div></div>` : '') +
       linksHtml(it.links) +
       (it.unresolved ? `<div class="kw-unres">Open: ${esc(it.unresolved)}</div>` : '');
     const blob = (it.title + ' ' + (it.authors || '') + ' ' + gist + ' ' + (it.eli || '')).toLowerCase();
@@ -1100,11 +1111,12 @@ function viewKnowledge() {
   const filterBar = allItems.length > 6 ? `<div class="kw-filter" id="kw-filter">
       <input id="kw-search" type="search" placeholder="Search papers, authors, ideas…" autocapitalize="off" spellcheck="false">
       <div class="kw-chips-row">${chips.join('')}</div></div>` : '';
-  const researchHtml = (threadsHtml || capItemsHtml) ? `<div class="ksec"><div class="sec-label">Research &amp; reasoning</div>${introHtml}${filterBar}${threadsHtml}${capItemsHtml}</div>` : '';
+  const researchHtml = (threadsHtml || capItemsHtml) ? `<div class="ksec"><div class="sec-label">Research</div>${introHtml}${filterBar}${threadsHtml}${capItemsHtml}</div>` : '';
 
   render(
-    `<div class="sec headview"><div class="sec-label">Knowledge</div><h2>Knowledge &amp; reasoning</h2>
+    `<div class="sec headview"><div class="sec-label">Knowledge</div><h2>Knowledge</h2>
       <div class="sec-sub">A name, a link, a thing you saw on the floor. Drop it now, triage later. Syncs across devices.</div>
+      ${personaSwitcher()}
       <div class="cap-compose">
         <textarea id="cap-txt" placeholder="What do you want to remember?"></textarea>
         <div class="cap-bar">
@@ -1184,6 +1196,8 @@ function viewKnowledge() {
     }
   });
   document.querySelectorAll('[data-capdel]').forEach(b => b.onclick = async () => { if (!confirm('Delete this capture?')) return; await deleteRow('captures', b.dataset.capdel); });
+  // persona switch: re-read the knowledge through the chosen persona's lens
+  document.querySelectorAll('.psw-b').forEach(b => b.onclick = () => { activePersona = b.dataset.persona; try { localStorage.setItem('activePersona', activePersona); } catch (e) {} viewKnowledge(); });
 }
 
 /* ---------- Agent (a real chat: you talk, it changes the plan, it reports back) ---------- */
