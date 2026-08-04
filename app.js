@@ -459,7 +459,7 @@ function renderPostEvent() {
       </div></div>` +
     `<div class="sec"><h2>Follow up</h2><div class="sec-sub">Who you met, highest-value first. Tap for the thread and a drafted note.</div>
       <div class="pe-list">${followHtml || '<div class="h-empty">No contacts logged.</div>'}</div></div>` +
-    `<div class="sec"><h2>What is left to do</h2>${open.length ? open.map(t => taskRowHtml(t)).join('') : '<div class="h-empty">Nothing open.</div>'}</div>`;
+    `<div class="sec"><h2>What is left to do</h2><div class="handle">${open.length ? open.map(t => taskRowHtml(t)).join('') : '<div class="h-empty">Nothing open.</div>'}</div></div>`;
   render(body);
   tickCountdown();
   bindTaskRows();
