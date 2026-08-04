@@ -761,6 +761,15 @@ nav.tabs a .tl{line-height:1;}
 .kw-clip{font-size:12.5px;line-height:1.5;color:#3a3a3a;padding:5px 0 5px 11px;border-left:2px solid var(--red);margin-top:6px;}
 .kw-clip-f{color:var(--faint);font-size:11px;}
 .kw-unres{font-size:11.5px;line-height:1.45;color:var(--faint);margin-top:12px;font-style:italic;}
+/* validated-reasoning: claims checked against sources */
+.kw-verified .kw-vrow{display:grid;grid-template-columns:18px 1fr;gap:8px;align-items:start;padding:6px 0;border-bottom:1px solid var(--wash);font-size:12.5px;line-height:1.45;}
+.kw-verified .kw-vrow:last-child{border-bottom:none;}
+.kw-vb{width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;line-height:1;margin-top:1px;}
+.kw-vb.ok{background:var(--ink);color:#fff;}
+.kw-vb.un{background:none;border:1px solid var(--faint);color:var(--faint);}
+.kw-vc{color:#3a3a3a;}
+.kw-vsrc{color:var(--red);text-decoration:none;font-size:11px;white-space:nowrap;}
+.kw-vun{color:var(--faint);font-size:11px;font-style:italic;}
 .kw-thin{font-size:12.5px;color:var(--faint);}
 .kw-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;}
 .kw-link{display:inline-flex;align-items:center;border:1px solid var(--ink);border-radius:7px;padding:6px 11px;font-size:12.5px;font-weight:600;color:var(--ink);min-height:36px;}

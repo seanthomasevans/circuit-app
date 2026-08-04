@@ -20,6 +20,18 @@ window.DB = (() => {
 
   async function ownerId() { const { data } = await sb.auth.getUser(); return data?.user?.id || null; }
 
+  // The bundle's AES key, gated behind Supabase auth (RLS: authenticated read only). Handed out
+  // only after sign-in, so the public ciphertext on github.io cannot be decrypted without an account.
+  async function bundleKey(cid, kid) {
+    if (!ready) return null;
+    let { data } = await sb.from('bundle_key').select('key_b64').eq('circuit_id', cid).eq('kid', kid).maybeSingle();
+    if (!data) {  // exact bundle key missing (mid-deploy race): fall back to the latest key for the circuit
+      const r = await sb.from('bundle_key').select('key_b64').eq('circuit_id', cid).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      data = r.data;
+    }
+    return data ? data.key_b64 : null;
+  }
+
   async function loadAll() {
     if (!ready) return {};
     const out = {};
@@ -112,5 +124,5 @@ window.DB = (() => {
     onChange(cb) { if (ready) sb.auth.onAuthStateChange((_e, s) => cb(s)); },
   };
 
-  return { ready, TABLES, loadAll, upsert, remove, subscribe, flush, auth, cacheGet, cachePut };
+  return { ready, TABLES, loadAll, upsert, remove, subscribe, flush, auth, cacheGet, cachePut, bundleKey };
 })();

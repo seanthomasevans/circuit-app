@@ -118,7 +118,28 @@ function commuteStr(h) {
 }
 
 /* ---------- unlock ---------- */
-async function decrypt(pw) {
+// Content-key split: the bundle is encrypted with a random 256-bit key stored in Supabase and
+// handed out only after sign-in. The login password authenticates Supabase; it is NOT the data key.
+// unlockRef() authenticates, fetches the key, decrypts. v1 (password-derived) bundles still decrypt
+// via the PBKDF2 fallback so a stale cached bundle keeps working through the cutover.
+async function unlockRef(email, pw) {
+  const c = window.__CIPHER__;
+  if (DB.ready) { const { error } = await DB.auth.signIn(email, pw); if (error) throw new Error('auth'); }
+  if (c && c.v === 2) {
+    const cid = (window.CIRCUIT_CFG && window.CIRCUIT_CFG.CIRCUIT_ID) || c.cid || 'siggraph-2026';
+    const keyB64 = await DB.bundleKey(cid, c.kid);
+    if (!keyB64) throw new Error('no-key');
+    return await decryptBundle(keyB64);
+  }
+  return await decrypt(pw);   // v1 fallback (password-derived key)
+}
+async function decryptBundle(keyB64) {
+  const c = window.__CIPHER__;
+  const key = await crypto.subtle.importKey('raw', b64(keyB64), { name: 'AES-GCM' }, false, ['decrypt']);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(c.iv) }, key, b64(c.ct));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+async function decrypt(pw) {   // v1: password is the PBKDF2 seed (legacy bundles only)
   const c = window.__CIPHER__;
   const enc = new TextEncoder();
   const raw = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveKey']);
@@ -143,9 +164,7 @@ async function boot() {
   const savedEmail = store.get('email'), savedPw = store.get('pw');
   if (savedEmail && savedPw) {
     try {
-      const ref = await decrypt(savedPw);           // throws if the password is wrong or changed
-      if (DB.ready) { const { error } = await DB.auth.signIn(savedEmail, savedPw); if (error) throw new Error('auth'); }
-      REF = ref;
+      REF = await unlockRef(savedEmail, savedPw);    // auth, fetch the data key, decrypt
       await enter();
       return;                                        // stayed signed in, gate never shown
     } catch (e) { store.set('pw', null); }           // stale/changed: clear and fall through to the gate
@@ -159,17 +178,16 @@ async function boot() {
     if (!email || !pw) { $('#gerr').textContent = 'Enter your email and password.'; return; }
     $('#unlock').disabled = true; $('#unlock').textContent = 'Signing in…';
     try {
-      // (a) decrypt the static bundle, (b) authenticate Supabase, both with the SAME password.
-      const ref = await decrypt(pw);            // throws on wrong password
-      const { error } = await DB.auth.signIn(email, pw);
-      if (error) throw new Error(error.message || 'auth');
-      REF = ref;
+      // Authenticate Supabase, then fetch the bundle key and decrypt. The password is the login
+      // credential only; the data key is random and lives in Supabase behind auth.
+      REF = await unlockRef(email, pw);
       store.set('email', email);
       store.set('pw', pw);                      // remember it so reloads and deploys keep you in
       await enter();
     } catch (e) {
-      $('#gerr').textContent = /auth|invalid|credential/i.test(String(e && e.message))
-        ? 'Wrong email or password.' : 'Wrong password.';
+      const m = String(e && e.message);
+      $('#gerr').textContent = /no-key/.test(m) ? 'Signed in, but the data key did not load. Try again in a moment.'
+        : /auth|invalid|credential/i.test(m) ? 'Wrong email or password.' : 'Could not unlock.';
     } finally {
       $('#unlock').disabled = false; $('#unlock').textContent = 'Sign in';
     }
@@ -1004,6 +1022,26 @@ function viewMoney() {
      <div class="mv">${money(c.total)}</div></div>`;
   }).join('');
 
+  // Les — reconciled actuals: a teammate's card-verified spend, shown alongside your budget.
+  // Cents matter for a reconciled claim, so this section prints exact amounts.
+  const money2 = n => '$' + (n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const la = (DATA.actuals && DATA.actuals.les) || null;
+  const lesSection = la ? (() => {
+    const lmax = Math.max(1, ...la.lines.map(l => l.amount));
+    const bars = la.lines.map(l =>
+      `<div class="mrow"><div class="ml">${esc(l.cat)}<span class="msub">${esc(l.label)}</span></div>
+       <div class="mbar"><i style="width:${Math.max(2, (l.amount / lmax) * 100)}%;background:var(--ink)"></i></div>
+       <div class="mv tnum">${money2(l.amount)}</div></div>`).join('');
+    return `<div class="sec-label mgap">${esc(la.name)} · reconciled actuals</div>
+      <div class="mnote">${esc(la.name)}'s card-verified spend, ${esc(la.currency)}, as of ${esc(la.as_of)}. ${esc(la.source)}.</div>
+      <div class="mhero" style="margin-top:10px">
+        <div class="mhero-k">${esc(la.name)} out of pocket, claimed</div>
+        <div class="mhero-v tnum">${money2(la.total)}<span> ${esc(la.currency)}</span></div>
+        <div class="mhero-sub">Reconciled to the statement, one line per receipt.</div>
+      </div>
+      ${bars}`;
+  })() : '';
+
   const post = eventPhase().phase === 'after';
   const body = `<div class="sec headview"><h2>What the trip ${post ? 'cost' : 'costs'}</h2>
     <div class="sec-label" style="margin:8px 0 0">Your money, and who covers the rest</div>
@@ -1030,6 +1068,7 @@ function viewMoney() {
     </div>
     ${cashLine ? `<div class="mcash">${esc(cashLine)}</div>` : ''}
     ${catBars}
+    ${lesSection}
 
     <details class="brief mgap"><summary><span class="bs-t">Every line item</span><span class="bs-i">+</span></summary><div class="bs-body">
       ${rows.map(r => `<div class="bud-row"><div class="br-l">${esc(r.label)}<span class="br-m">${esc(r.cat)} · ${esc(r.payer)}${r.qty > 1 ? ' · x' + r.qty : ''} · ${r.actual ? 'paid' : 'est'}${r.note ? ' · ' + esc(r.note) : ''}</span></div><div class="br-amt tnum">${money(r.line)}</div></div>`).join('')}
@@ -1085,8 +1124,13 @@ function viewKnowledge() {
     const gist = it.one_liner || it.innovation || it.key_claim || '';
     const conf = it.match_confidence ? `<span class="kw-conf c-${esc(it.match_confidence)}">${esc(it.match_confidence)}</span>` : '';
     const _p = activeP();
-    const angle = _p.id === 'sean' ? (it.sean_objective || it.sean_angle)
+    const angle = _p.id === 'sean' ? (it.sean_objective || it.sean_angle || (it.lens && it.lens.sean && it.lens.sean.angle) || '')
       : ((it.lens && it.lens[_p.id] && it.lens[_p.id].angle) || '');
+    // Validated-reasoning output: each claim checked against a real source, unverifiable ones marked.
+    const verifiedHtml = (it.verified && it.verified.length)
+      ? `<div class="kw-sec kw-verified"><div class="kw-h">Claims, checked against sources · ${it.verified.filter(v => v.status === 'confirmed').length}/${it.verified.length} confirmed</div>${it.verified.map(v =>
+          `<div class="kw-vrow"><span class="kw-vb ${v.status === 'confirmed' ? 'ok' : 'un'}">${v.status === 'confirmed' ? '✓' : '?'}</span><span class="kw-vc">${esc(v.claim)}${v.source ? ` <a class="kw-vsrc" href="${esc(v.source)}" target="_blank" rel="noopener">source ↗</a>` : ' <span class="kw-vun">no public source</span>'}</span></div>`).join('')}</div>`
+      : '';
     const readyChip = it.readiness ? `<span class="kw-ready">${esc(it.readiness)}</span>` : '';
     const _tsec = it.sectors ? Object.entries(it.sectors).filter(([s, w]) => w >= 2).sort((a, b) => b[1] - a[1]).map(([s]) => s).slice(0, 4) : [];
     const sectorsLine = _tsec.length ? `<div class="kw-sectors">${_tsec.map(s => esc(s)).join(' · ')}</div>` : '';
@@ -1102,6 +1146,7 @@ function viewKnowledge() {
       sect("What's new", p(it.whats_new)) +
       sect('How it encodes geometry', p(it.representation)) +
       sect('Results', p(it.results)) +
+      verifiedHtml +
       (it.chart ? `<div class="kw-sec kw-chart"><div class="kw-chart-svg">${it.chart.svg}</div>${it.chart.caption ? `<div class="kw-chart-cap">${esc(it.chart.caption)}</div>` : ''}</div>` : '') +
       ((it.clips && it.clips.length) ? `<div class="kw-sec"><div class="kw-h">Clip${it.clips.length > 1 ? 's' : ''} you filmed</div>${it.clips.map(c =>
         `<div class="kw-clip">${esc(c.motion_description || c.key_claim || c.title || '')}${c.file ? ` <span class="kw-clip-f">${esc(c.file)}</span>` : ''}</div>`).join('')}</div>` : '') +
@@ -1111,20 +1156,25 @@ function viewKnowledge() {
     const blob = (it.title + ' ' + (it.authors || '') + ' ' + gist + ' ' + (it.eli || '')).toLowerCase();
     const fl = kflag(it.id);
     const slidesN = (it.slides && it.slides.length) || 0;
+    const nVer = (it.verified && it.verified.length) || 0;
     const hasVis = !!(slidesN || it.chart);
+    // "Enhanced" = the agent has deepened it: visuals, verified claims, or both persona lenses.
+    const enhanced = hasVis || !!nVer || !!(it.lens && it.lens.sean && it.lens.les);
     const paperUrl = (it.links || []).map(l => l.u || '').find(u => /arxiv|github|conference-schedule|publications|\.io|\.world|\.ai/.test(u));
     const enh = enhReq(it.id);
-    const enhLabel = hasVis ? '✦ enhanced' : (enh ? '✦ queued' : '✦ enhance');
-    const enhCap = hasVis
-      ? [slidesN ? slidesN + ' slide' + (slidesN > 1 ? 's' : '') : '', it.chart ? 'chart' : '', paperUrl ? 'paper linked' : ''].filter(Boolean).join(' · ')
-      : (enh ? "Queued. The agent will match your captured slides, fetch the paper, and attach figures." : '');
+    const enhLabel = enhanced ? '✦ enhanced' : (enh ? '✦ queued' : '✦ enhance');
+    const enhCap = enhanced
+      ? [slidesN ? slidesN + ' slide' + (slidesN > 1 ? 's' : '') : '', it.chart ? 'chart' : '',
+         nVer ? it.verified.filter(v => v.status === 'confirmed').length + '/' + nVer + ' claims verified' : '',
+         (it.lens && it.lens.sean && it.lens.les) ? 'both lenses' : (paperUrl ? 'paper linked' : '')].filter(Boolean).join(' · ')
+      : (enh ? 'Queued. The agent deepens it, verifies each claim against its sources, and reports back in Agent.' : '');
     const rd = it.relevance ? `<span class="kw-rel r${it.relevance}" title="relevance ${it.relevance} of 3 to your objectives"></span>` : '';
     return `<details class="kw-card${fl ? ' flagged' : ''}" data-lane="${esc(it.lane || 'other')}" data-rel="${it.relevance || 0}" data-flagged="${fl ? 1 : 0}" data-search="${esc(blob)}"><summary>
         <div class="kw-ct">${rd}<span class="kw-t">${esc(it.title)}</span>${conf}${readyChip}<button class="kw-flag${fl ? ' on' : ''}" data-flag="${esc(it.id || '')}" aria-label="flag relevant">${fl ? '★' : '☆'}</button></div>
         ${sectorsLine}
         ${it.authors ? `<div class="kw-by">${esc(it.authors)}</div>` : ''}
         ${gist ? `<div class="kw-gist">${esc(gist)}</div>` : ''}
-        <div class="kw-enh-row"><button class="kw-enh${enh ? ' on' : ''}${hasVis ? ' done' : ''}" data-enh="${esc(it.id || '')}" title="Queue for enhancement: match your captured slides, fetch the paper, and attach figures">${enhLabel}</button><span class="kw-enh-cap">${esc(enhCap)}</span></div>
+        <div class="kw-enh-row"><button class="kw-enh${enh ? ' on' : ''}${enhanced ? ' done' : ''}" data-enh="${esc(it.id || '')}" title="Enhance: deepen the method, verify each claim against its sources, add both persona lenses">${enhLabel}</button><span class="kw-enh-cap">${esc(enhCap)}</span></div>
       </summary><div class="kw-body">${body || '<p class="kw-thin">No detail yet.</p>'}</div></details>`;
   };
   // Triage sort: flagged first, then by relevance-to-Sean's-objectives (3=core … 0). Nothing dropped.
