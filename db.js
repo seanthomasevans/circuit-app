@@ -10,6 +10,8 @@ window.DB = (() => {
   // Reference data (contacts, tasks, budget, schedule) ships static in the bundle.
   // Supabase holds ONLY what the user generates live, so there is nothing to seed and nothing to drift.
   const TABLES = ['item_state', 'captures', 'chat'];
+  // The active circuit (event). Every synced row is scoped to it so multiple events never mix.
+  const circuitId = () => cfg.CIRCUIT_ID || (window.DATA && window.DATA.event && window.DATA.event.id) || 'siggraph-2026';
   const QKEY = 'circuit:wq';
   const cacheGet = t => { try { return JSON.parse(localStorage.getItem('circuit:cache:' + t) || '[]'); } catch { return []; } };
   const cacheSet = (t, rows) => localStorage.setItem('circuit:cache:' + t, JSON.stringify(rows));
@@ -23,7 +25,7 @@ window.DB = (() => {
     const out = {};
     await Promise.all(TABLES.map(async t => {
       try {
-        const { data, error } = await sb.from(t).select('*');
+        const { data, error } = await sb.from(t).select('*').eq('circuit_id', circuitId());
         // supabase-js returns errors in `error`, not by throwing. A transient error must NOT
         // overwrite the good cache with an empty array (that was a silent data-loss-on-read bug).
         if (error) { out[t] = cacheGet(t); return; }
@@ -42,7 +44,7 @@ window.DB = (() => {
       try {
         if (op.kind === 'upsert') {
           const { error } = await sb.from(op.table).upsert(serverRow(op.table, op.row, owner),
-            op.table === 'item_state' ? { onConflict: 'owner,key' } : undefined);
+            op.table === 'item_state' ? { onConflict: 'owner,circuit_id,key' } : undefined);
           if (error) throw error;
         } else if (op.kind === 'delete') {
           const col = op.table === 'item_state' ? 'key' : 'id';
@@ -60,8 +62,8 @@ window.DB = (() => {
   const cachePut = (t, row) => { const k = rowKey(t, row); const rows = cacheGet(t).filter(r => rowKey(t, r) !== k); rows.push(row); cacheSet(t, rows); };
   const serverRow = (table, row, owner) => {
     // Strip client-only fields the table does not have before sending to PostgREST.
-    if (table === 'item_state') { const { id, ...rest } = row; return { ...rest, owner }; }
-    return { ...row, owner };
+    if (table === 'item_state') { const { id, ...rest } = row; return { ...rest, owner, circuit_id: circuitId() }; }
+    return { ...row, owner, circuit_id: circuitId() };
   };
 
   async function upsert(table, row) {
@@ -72,7 +74,7 @@ window.DB = (() => {
     if (ready && navigator.onLine) {
       try {
         const q = sb.from(table).upsert(serverRow(table, row, owner),
-          table === 'item_state' ? { onConflict: 'owner,key' } : undefined);
+          table === 'item_state' ? { onConflict: 'owner,circuit_id,key' } : undefined);
         const { error } = await q; if (!error) return;
       } catch {}
     }
