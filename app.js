@@ -267,6 +267,41 @@ function personaSwitcher() {
   return `<div class="persona-sw">${ps.map(p => `<button class="psw-b${p.id === activePersona ? ' on' : ''}" data-persona="${esc(p.id)}">${esc(p.name.split(' ')[0])}<span>${esc(p.tagline)}</span></button>`).join('')}</div>`;
 }
 
+// Cross-persona synthesis, read from the active persona's point of view. Computed at build time
+// (circuit/synthesis.py); this only frames it. Shared priority, each persona's depth, the bridges
+// where one's method reaches the other's industry, and per-sector coverage.
+function synthesisPanel() {
+  const S = DATA.synthesis;
+  if (!S || (DATA.personas || []).length < 2) return '';
+  const me = activePersona;
+  const other = (S.personas || []).find(p => p.id !== me) || { id: '', name: '' };
+  const oname = (other.name || '').split(' ')[0] || 'them';
+  const sc = it => `<span class="syn-sc" title="${esc(me)} / ${esc(other.id)} fit">${(it.p && it.p[me]) || 0}<i>/</i>${(it.p && it.p[other.id]) || 0}</span>`;
+  const row = it => `<div class="syn-row">${sc(it)}<span class="syn-t">${esc(it.title)}</span></div>`;
+  const brow = it => {
+    const fromMe = it.bridge_from === me;
+    const dir = fromMe ? `your method → ${oname}: ${it.bridge_sectors.join(' · ')}`
+                       : `${oname}'s method → you: ${it.bridge_sectors.join(' · ')}`;
+    return `<div class="syn-row"><span class="syn-t">${esc(it.title)}</span><span class="syn-br">${esc(dir)}</span></div>`;
+  };
+  const shared = (S.shared_priorities || []).slice(0, 5).map(row).join('');
+  const mine = (S.complementary && S.complementary[me] || []).slice(0, 4).map(row).join('') || '<div class="syn-empty">—</div>';
+  const theirs = (S.complementary && S.complementary[other.id] || []).slice(0, 4).map(row).join('') || '<div class="syn-empty">—</div>';
+  const synergy = (S.synergy || []).slice(0, 5).map(brow).join('') || '<div class="syn-empty">—</div>';
+  const cov = (S.coverage || []).filter(c => c.items).map(c =>
+    `<span class="syn-cov${c.owner ? ' owned' : ''}">${esc(c.sector)}<i>${c.items}</i>${c.owner ? '<b>' + esc((c.owner === me ? 'you' : oname)) + '</b>' : ''}</span>`).join('');
+  return `<details class="syn-panel" open><summary><span class="syn-k">Synthesis</span><span class="syn-sub">you × ${esc(oname)}</span><span class="syn-i">+</span></summary>
+    <div class="syn-body">
+      <div class="syn-grp"><div class="syn-h">Meet here first<span>shared priority · ${S.counts.shared}</span></div>${shared}</div>
+      <div class="syn-two">
+        <div class="syn-grp"><div class="syn-h">Where you go deep<span>your lane</span></div>${mine}</div>
+        <div class="syn-grp"><div class="syn-h">Where ${esc(oname)} goes deep<span>their lane</span></div>${theirs}</div>
+      </div>
+      <div class="syn-grp"><div class="syn-h">Where your lenses combine<span>method → industry bridge · ${S.counts.synergy}</span></div>${synergy}</div>
+      <div class="syn-grp"><div class="syn-h">Sector coverage<span>items · who owns it</span></div><div class="syn-cov-row">${cov}</div></div>
+    </div></details>`;
+}
+
 /* ---------- DB write helpers (optimistic: write, re-merge from cache, re-render) ---------- */
 async function saveRow(table, row) {
   DB.cachePut(table, row);                 // optimistic: local cache + render now
@@ -1115,7 +1150,7 @@ function viewKnowledge() {
   const filterBar = allItems.length > 6 ? `<div class="kw-filter" id="kw-filter">
       <input id="kw-search" type="search" placeholder="Search papers, authors, ideas…" autocapitalize="off" spellcheck="false">
       <div class="kw-chips-row">${chips.join('')}</div></div>` : '';
-  const researchHtml = (threadsHtml || capItemsHtml) ? `<div class="ksec"><div class="sec-label">Research</div>${introHtml}${filterBar}${threadsHtml}${capItemsHtml}</div>` : '';
+  const researchHtml = (threadsHtml || capItemsHtml) ? `<div class="ksec"><div class="sec-label">Research</div>${introHtml}${synthesisPanel()}${filterBar}${threadsHtml}${capItemsHtml}</div>` : '';
 
   render(
     `<div class="sec headview"><div class="sec-label">Knowledge</div><h2>Knowledge</h2>
@@ -1185,9 +1220,10 @@ function viewKnowledge() {
     const id = b.dataset.flag; if (!id) return;
     saveState('kflag:' + id, !kflag(id));
   });
-  // Request enhancement: queues the item for the agent to run the KÖK BÖRÜ loop
-  // (perfect the visual assets, attach slides + fuller context, validate).
-  document.querySelectorAll('.kw-enh').forEach(b => b.onclick = e => {
+  // Request enhancement: hands the item to the agent for the validated-reasoning loop.
+  // The worker deepens the method, verifies every claim against the item's real sources,
+  // marks anything unverified, writes both persona lenses, then rebuilds and republishes.
+  document.querySelectorAll('.kw-enh').forEach(b => b.onclick = async e => {
     e.preventDefault(); e.stopPropagation();
     const id = b.dataset.enh; if (!id) return;
     const now = !enhReq(id);
@@ -1196,7 +1232,15 @@ function viewKnowledge() {
     const cap = b.parentElement.querySelector('.kw-enh-cap');
     if (!b.classList.contains('done')) {
       b.textContent = now ? '✦ queued' : '✦ enhance';
-      if (cap) cap.textContent = now ? "Queued. The agent will match your captured slides, fetch the paper, and attach figures." : '';
+      if (cap) cap.textContent = now ? 'Queued. The agent deepens it, verifies each claim against its sources, and reports back in Agent.' : '';
+    }
+    // Only enqueue when turning ON. Route it through the chat table so the agent runs it and the
+    // request + result show up as a conversation in the Agent tab.
+    if (now) {
+      const it = (K.threads || []).flatMap(t => t.items || []).concat(K.items || []).find(x => x.id === id) || {};
+      await saveRow('chat', { id: uuid(), role: 'user',
+        body: `Enhance the research item “${it.title || id}”: deepen the method with first-principles reasoning, verify every claim against its linked sources, mark anything unverified, and add a Sean and a Les lens.`,
+        meta: { kind: 'enhance', item_id: id }, status: 'pending', created_at: new Date().toISOString() });
     }
   });
   document.querySelectorAll('[data-capdel]').forEach(b => b.onclick = async () => { if (!confirm('Delete this capture?')) return; await deleteRow('captures', b.dataset.capdel); });

@@ -672,6 +672,32 @@ nav.tabs a .tl{line-height:1;}
 .psw-b.on{border-color:var(--red);}
 .psw-b.on span{color:var(--red);}
 .psw-b:active{background:var(--wash);}
+/* cross-persona synthesis panel */
+.syn-panel{border:1px solid var(--ink);border-radius:12px;margin:16px 0 4px;overflow:hidden;}
+.syn-panel>summary{list-style:none;cursor:pointer;display:flex;align-items:baseline;gap:9px;padding:12px 14px;background:var(--ink);color:#fff;}
+.syn-panel>summary::-webkit-details-marker{display:none;}
+.syn-panel .syn-k{font-size:12px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;}
+.syn-panel .syn-sub{font-size:12px;color:rgba(255,255,255,0.62);letter-spacing:0.02em;}
+.syn-panel .syn-i{margin-left:auto;font-size:16px;color:rgba(255,255,255,0.7);font-weight:400;}
+.syn-panel[open] .syn-i{transform:rotate(45deg);}
+.syn-body{padding:6px 14px 14px;}
+.syn-grp{margin-top:14px;}
+.syn-h{font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink);border-bottom:1px solid var(--line);padding-bottom:5px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:baseline;}
+.syn-h span{font-size:10px;font-weight:400;letter-spacing:0.02em;text-transform:none;color:var(--faint);}
+.syn-two{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.syn-row{display:flex;align-items:baseline;gap:9px;padding:5px 0;border-bottom:1px solid var(--wash);font-size:13px;line-height:1.4;}
+.syn-row:last-child{border-bottom:none;}
+.syn-sc{flex:none;font-variant-numeric:tabular-nums;font-weight:700;font-size:11px;color:var(--red);min-width:38px;}
+.syn-sc i{color:var(--faint);font-style:normal;font-weight:400;margin:0 1px;}
+.syn-t{color:var(--ink);}
+.syn-br{margin-left:auto;flex:none;font-size:10.5px;color:var(--grey);letter-spacing:0.01em;text-align:right;padding-left:8px;}
+.syn-empty{color:var(--faint);font-size:13px;padding:5px 0;}
+.syn-cov-row{display:flex;flex-wrap:wrap;gap:6px;}
+.syn-cov{display:inline-flex;align-items:baseline;gap:4px;border:1px solid var(--line);border-radius:20px;padding:4px 10px;font-size:11px;color:var(--grey);}
+.syn-cov i{font-style:normal;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;}
+.syn-cov.owned{border-color:var(--red);}
+.syn-cov b{font-weight:600;color:var(--red);font-size:10px;letter-spacing:0.02em;}
+@media(max-width:520px){.syn-two{grid-template-columns:1fr;gap:14px;}.syn-br{margin-left:0;text-align:left;padding-left:47px;flex-basis:100%;}}
 /* post-event Today: the follow-up desk */
 .pe-grid{display:flex;gap:10px;margin:4px 0 4px;}
 .pe-stat{flex:1;border:1px solid var(--line);border-radius:10px;padding:12px 10px;text-align:center;}
