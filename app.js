@@ -286,37 +286,72 @@ function personaSwitcher() {
 }
 
 // Cross-persona synthesis, read from the active persona's point of view. Computed at build time
-// (circuit/synthesis.py); this only frames it. Shared priority, each persona's depth, the bridges
-// where one's method reaches the other's industry, and per-sector coverage.
+// (circuit/synthesis.py); this only frames it. A depth persona (Sean) leads with craft; a breadth
+// persona (Les) leads with sector coverage + readiness. Scores are normalized per persona (each to
+// its own ceiling) and shown only where a fit comparison is the point (the shared list).
 function synthesisPanel() {
   const S = DATA.synthesis;
   if (!S || (DATA.personas || []).length < 2) return '';
   const me = activePersona;
+  const meP = (S.personas || []).find(p => p.id === me) || {};
   const other = (S.personas || []).find(p => p.id !== me) || { id: '', name: '' };
   const oname = (other.name || '').split(' ')[0] || 'them';
-  const sc = it => `<span class="syn-sc" title="${esc(me)} / ${esc(other.id)} fit">${(it.p && it.p[me]) || 0}<i>/</i>${(it.p && it.p[other.id]) || 0}</span>`;
-  const row = it => `<div class="syn-row">${sc(it)}<span class="syn-t">${esc(it.title)}</span></div>`;
+  const modeOf = id => ((S.personas || []).find(p => p.id === id) || {}).mode || 'depth';
+  const myMode = modeOf(me), theirMode = modeOf(other.id);
+  const OWN = ['architecture', 'construction', 'bioscience', 'aerospace'];
+
+  const rdy = it => it.readiness ? `<span class="syn-rd">${esc(it.readiness)}</span>` : '';
+  const ownSectors = it => Object.keys(it.sectors || {}).filter(s => OWN.includes(s) && it.sectors[s] >= 1);
+  // the technique family a depth persona's item belongs to, so their lane has a craft spine (the
+  // parallel to the breadth persona's sector tags) rather than being a bare title list.
+  const TECH = { 'spatial-3d-gen': '3D · splatting', 'gen-video-humans': 'video · humans',
+    'foundations': 'foundations', 'agent-pipelines-workflows': 'agentic', 'series-episodic-pipelines': 'series' };
+  // shared row: fit for each persona (the comparison is the point), title, readiness
+  const sharedRow = it => `<div class="syn-row"><span class="syn-sc">${(it.p && it.p[me]) || 0}<i>/</i>${(it.p && it.p[other.id]) || 0}</span><span class="syn-t">${esc(it.title)}${rdy(it)}</span></div>`;
+  // edge row: no fit number (it under-reads for a diluted persona). A breadth lane is tagged by the
+  // owned sectors it covers + readiness (that persona's axis); a depth lane by its technique family
+  // (readiness is the other persona's lens, so it is dropped here).
+  const edgeRow = breadth => it => {
+    if (breadth) {
+      const os = ownSectors(it);
+      return `<div class="syn-row"><span class="syn-t">${esc(it.title)}${rdy(it)}</span>${os.length ? `<span class="syn-tag">${esc(os.join(' · '))}</span>` : ''}</div>`;
+    }
+    const t = TECH[it.lane] || '';
+    return `<div class="syn-row"><span class="syn-t">${esc(it.title)}</span>${t ? `<span class="syn-tag tech">${esc(t)}</span>` : ''}</div>`;
+  };
   const brow = it => {
     const fromMe = it.bridge_from === me;
-    const dir = fromMe ? `your method → ${oname}: ${it.bridge_sectors.join(' · ')}`
-                       : `${oname}'s method → you: ${it.bridge_sectors.join(' · ')}`;
-    return `<div class="syn-row"><span class="syn-t">${esc(it.title)}</span><span class="syn-br">${esc(dir)}</span></div>`;
+    const dir = fromMe ? `your method, ${oname}'s ${it.bridge_sectors.join(' · ')}`
+                       : `${oname}'s method, your ${it.bridge_sectors.join(' · ')}`;
+    return `<div class="syn-row"><span class="syn-t">${esc(it.title)}${rdy(it)}</span><span class="syn-br">${esc(dir)}</span></div>`;
   };
-  const shared = (S.shared_priorities || []).slice(0, 5).map(row).join('');
-  const mine = (S.complementary && S.complementary[me] || []).slice(0, 4).map(row).join('') || '<div class="syn-empty">—</div>';
-  const theirs = (S.complementary && S.complementary[other.id] || []).slice(0, 4).map(row).join('') || '<div class="syn-empty">—</div>';
+
+  const shared = (S.shared_priorities || []).slice(0, 5).map(sharedRow).join('') || '<div class="syn-empty">—</div>';
+  const mineList = (S.complementary && S.complementary[me] || []).slice(0, 4);
+  const theirsList = (S.complementary && S.complementary[other.id] || []).slice(0, 4);
+  const mine = mineList.length ? mineList.map(edgeRow(myMode === 'breadth')).join('') : '<div class="syn-empty">—</div>';
+  const theirs = theirsList.length ? theirsList.map(edgeRow(theirMode === 'breadth')).join('') : '<div class="syn-empty">—</div>';
   const synergy = (S.synergy || []).slice(0, 5).map(brow).join('') || '<div class="syn-empty">—</div>';
   const cov = (S.coverage || []).filter(c => c.items).map(c =>
-    `<span class="syn-cov${c.owner ? ' owned' : ''}">${esc(c.sector)}<i>${c.items}</i>${c.owner ? '<b>' + esc((c.owner === me ? 'you' : oname)) + '</b>' : ''}</span>`).join('');
+    `<span class="syn-cov${c.owner === me ? ' mine' : c.owner ? ' owned' : ''}">${esc(c.sector)}<i>${c.items}</i>${c.ready ? `<u>${c.ready} ready</u>` : ''}${c.owner ? '<b>' + esc(c.owner === me ? 'you' : oname) + '</b>' : ''}</span>`).join('');
+
+  const laneWord = m => m === 'breadth' ? 'go wide' : 'go deep';
+  const laneSub = m => m === 'breadth' ? 'your sectors, readiest first' : 'your craft';
+  const frame = myMode === 'breadth'
+    ? `Your reach across seven sectors and how production-ready each is, next to ${oname}'s technique depth, and where the two combine.`
+    : `Where your craft goes deepest, where ${oname}'s sectors put it to work, and the ground you already share.`;
+
   return `<details class="syn-panel" open><summary><span class="syn-k">Synthesis</span><span class="syn-sub">you × ${esc(oname)}</span><span class="syn-i">+</span></summary>
     <div class="syn-body">
-      <div class="syn-grp"><div class="syn-h">Meet here first<span>shared priority · ${S.counts.shared}</span></div>${shared}</div>
+      <div class="syn-frame">${esc(frame)}</div>
+      <div class="syn-grp"><div class="syn-h">Meet here first<span>you share this · ${S.counts.shared}</span></div>
+        <div class="syn-legend">numbers = your fit / ${esc(oname)}'s fit, 0–100</div>${shared}</div>
       <div class="syn-two">
-        <div class="syn-grp"><div class="syn-h">Where you go deep<span>your lane</span></div>${mine}</div>
-        <div class="syn-grp"><div class="syn-h">Where ${esc(oname)} goes deep<span>their lane</span></div>${theirs}</div>
+        <div class="syn-grp"><div class="syn-h">Where you ${laneWord(myMode)}<span>${laneSub(myMode)}</span></div>${mine}</div>
+        <div class="syn-grp"><div class="syn-h">Where ${esc(oname)} ${laneWord(theirMode)}<span>${theirMode === 'breadth' ? esc(oname) + "'s sectors" : esc(oname) + "'s craft"}</span></div>${theirs}</div>
       </div>
-      <div class="syn-grp"><div class="syn-h">Where your lenses combine<span>method → industry bridge · ${S.counts.synergy}</span></div>${synergy}</div>
-      <div class="syn-grp"><div class="syn-h">Sector coverage<span>items · who owns it</span></div><div class="syn-cov-row">${cov}</div></div>
+      <div class="syn-grp"><div class="syn-h">Where you two combine<span>a method meets an industry · ${S.counts.synergy}</span></div>${synergy}</div>
+      <div class="syn-grp"><div class="syn-h">Sector coverage<span>items · ready · who owns it</span></div><div class="syn-cov-row">${cov}</div></div>
     </div></details>`;
 }
 

@@ -681,6 +681,11 @@ nav.tabs a .tl{line-height:1;}
 .syn-panel .syn-i{margin-left:auto;font-size:16px;color:rgba(255,255,255,0.7);font-weight:400;}
 .syn-panel[open] .syn-i{transform:rotate(45deg);}
 .syn-body{padding:6px 14px 14px;}
+.syn-frame{font-size:12.5px;line-height:1.5;color:var(--grey);margin-top:10px;}
+.syn-legend{font-size:10.5px;color:var(--faint);letter-spacing:0.01em;margin:-2px 0 4px;}
+.syn-rd{display:inline-block;font-size:9.5px;letter-spacing:0.04em;text-transform:uppercase;color:var(--grey);border:1px solid var(--line);border-radius:4px;padding:1px 5px;margin-left:7px;vertical-align:1px;white-space:nowrap;}
+.syn-tag{margin-left:auto;flex:none;font-size:10px;color:var(--red);letter-spacing:0.02em;text-align:right;padding-left:8px;}
+.syn-tag.tech{color:var(--grey);}
 .syn-grp{margin-top:14px;}
 .syn-h{font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink);border-bottom:1px solid var(--line);padding-bottom:5px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:baseline;}
 .syn-h span{font-size:10px;font-weight:400;letter-spacing:0.02em;text-transform:none;color:var(--faint);}
@@ -695,7 +700,10 @@ nav.tabs a .tl{line-height:1;}
 .syn-cov-row{display:flex;flex-wrap:wrap;gap:6px;}
 .syn-cov{display:inline-flex;align-items:baseline;gap:4px;border:1px solid var(--line);border-radius:20px;padding:4px 10px;font-size:11px;color:var(--grey);}
 .syn-cov i{font-style:normal;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;}
-.syn-cov.owned{border-color:var(--red);}
+.syn-cov u{text-decoration:none;font-size:9.5px;color:var(--faint);letter-spacing:0.01em;}
+.syn-cov.owned,.syn-cov.mine{border-color:var(--red);}
+.syn-cov.mine{background:var(--red);}
+.syn-cov.mine,.syn-cov.mine i,.syn-cov.mine u,.syn-cov.mine b{color:#fff;}
 .syn-cov b{font-weight:600;color:var(--red);font-size:10px;letter-spacing:0.02em;}
 @media(max-width:520px){.syn-two{grid-template-columns:1fr;gap:14px;}.syn-br{margin-left:0;text-align:left;padding-left:47px;flex-basis:100%;}}
 /* post-event Today: the follow-up desk */
